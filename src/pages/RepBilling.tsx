@@ -267,6 +267,10 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   // Cart Management
   const addToCart = (product: Product, qty: number = 1) => {
     const lorryStock = lorryStockMap.get(product.id) ?? product.currentStock;
+    const buyRatio = product.freeRatioBuy || 0;
+    const getRatio = product.freeRatioGet || 0;
+    const calcFree = (q: number) => (buyRatio > 0 && getRatio > 0 && q > 0 ? Math.floor(q / buyRatio) * getRatio : 0);
+
     setCart(prev => {
       const existing = prev.find(i => i.productId === product.id);
       if (existing) {
@@ -274,8 +278,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         if (nextQty <= 0) {
           return prev.filter(i => i.productId !== product.id);
         }
-        return prev.map(i => i.productId === product.id ? { ...i, quantity: nextQty } : i);
+        return prev.map(i => i.productId === product.id ? { ...i, quantity: nextQty, freeQuantity: calcFree(nextQty) } : i);
       }
+      const initialQty = Math.max(1, qty);
       return [
         ...prev,
         {
@@ -287,8 +292,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
           unitPrice: product.unitPrice,
           originalUnitPrice: product.unitPrice,
           availableStock: lorryStock,
-          quantity: Math.max(1, qty),
-          freeQuantity: 0,
+          quantity: initialQty,
+          freeQuantity: calcFree(initialQty),
           discountPercent: 0
         }
       ];
@@ -296,16 +301,42 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   };
 
   const updateCartQty = (productId: string, delta: number) => {
+    const product = products.find(p => p.id === productId);
+    const buyRatio = product?.freeRatioBuy || 0;
+    const getRatio = product?.freeRatioGet || 0;
+    const calcFree = (q: number) => (buyRatio > 0 && getRatio > 0 && q > 0 ? Math.floor(q / buyRatio) * getRatio : 0);
+
     setCart(prev =>
       prev
         .map(i => {
           if (i.productId === productId) {
             const next = i.quantity + delta;
-            return next > 0 ? { ...i, quantity: next } : null;
+            return next > 0 ? { ...i, quantity: next, freeQuantity: calcFree(next) } : null;
           }
           return i;
         })
         .filter(Boolean) as CartItem[]
+    );
+  };
+
+  const setCartItemQty = (productId: string, qty: number) => {
+    const product = products.find(p => p.id === productId);
+    const buyRatio = product?.freeRatioBuy || 0;
+    const getRatio = product?.freeRatioGet || 0;
+    const calcFree = (q: number) => (buyRatio > 0 && getRatio > 0 && q > 0 ? Math.floor(q / buyRatio) * getRatio : 0);
+
+    setCart(prev =>
+      prev.map(i => {
+        if (i.productId === productId) {
+          const safeQty = Math.max(0, qty);
+          return {
+            ...i,
+            quantity: safeQty,
+            freeQuantity: calcFree(safeQty)
+          };
+        }
+        return i;
+      })
     );
   };
 
@@ -814,17 +845,33 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                           <button
                             type="button"
                             onClick={() => updateCartQty(item.productId, -1)}
-                            className="w-6 h-6 bg-white rounded flex items-center justify-center font-bold text-slate-700 shadow-2xs text-xs"
+                            className="w-7 h-7 bg-white rounded flex items-center justify-center font-bold text-slate-700 shadow-2xs text-xs hover:bg-slate-50 active:scale-95 transition"
+                            title="Decrease quantity"
                           >
                             -
                           </button>
-                          <span className="w-7 text-center font-mono font-bold text-xs text-slate-900">
-                            {item.quantity}
-                          </span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={item.quantity === 0 ? '' : item.quantity}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                              setCartItemQty(item.productId, isNaN(val) ? 0 : Math.max(0, val));
+                            }}
+                            onBlur={() => {
+                              if (!item.quantity || item.quantity <= 0) {
+                                setCartItemQty(item.productId, 1);
+                              }
+                            }}
+                            onFocus={(e) => e.target.select()}
+                            className="w-11 h-7 bg-transparent text-center font-mono font-bold text-xs text-slate-900 focus:outline-none focus:bg-white focus:rounded focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
                           <button
                             type="button"
                             onClick={() => updateCartQty(item.productId, 1)}
-                            className="w-6 h-6 bg-white rounded flex items-center justify-center font-bold text-slate-700 shadow-2xs text-xs"
+                            className="w-7 h-7 bg-white rounded flex items-center justify-center font-bold text-slate-700 shadow-2xs text-xs hover:bg-slate-50 active:scale-95 transition"
+                            title="Increase quantity"
                           >
                             +
                           </button>
@@ -985,17 +1032,33 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                           <button
                             type="button"
                             onClick={() => updateCartQty(product.id, -1)}
-                            className="w-6 h-6 bg-white rounded flex items-center justify-center font-bold text-blue-700 text-xs shadow-2xs"
+                            className="w-7 h-7 bg-white rounded flex items-center justify-center font-bold text-blue-700 text-xs shadow-2xs hover:bg-blue-100 active:scale-95 transition"
+                            title="Decrease quantity"
                           >
                             -
                           </button>
-                          <span className="w-7 text-center font-mono font-bold text-xs text-blue-800">
-                            {inCart.quantity}
-                          </span>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={inCart.quantity === 0 ? '' : inCart.quantity}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                              setCartItemQty(product.id, isNaN(val) ? 0 : Math.max(0, val));
+                            }}
+                            onBlur={() => {
+                              if (!inCart.quantity || inCart.quantity <= 0) {
+                                setCartItemQty(product.id, 1);
+                              }
+                            }}
+                            onFocus={(e) => e.target.select()}
+                            className="w-11 h-7 bg-transparent text-center font-mono font-bold text-xs text-blue-900 focus:outline-none focus:bg-white focus:rounded focus:ring-1 focus:ring-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
                           <button
                             type="button"
                             onClick={() => addToCart(product, 1)}
-                            className="w-6 h-6 bg-blue-600 text-white rounded flex items-center justify-center font-bold text-xs shadow-2xs"
+                            className="w-7 h-7 bg-blue-600 text-white rounded flex items-center justify-center font-bold text-xs shadow-2xs hover:bg-blue-700 active:scale-95 transition"
+                            title="Increase quantity"
                           >
                             +
                           </button>
