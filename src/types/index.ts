@@ -279,8 +279,28 @@ export interface DashboardStats {
   netProfitToday: number;
   creditCollectionsToday?: number;
   fleetStatus: FleetLorryStatus[];
+  repLiveStatus?: RepLiveStatus[];
   recentOrders: Order[];
   lowStockItems: Product[];
+}
+
+export interface RepLiveStatus {
+  id: string;
+  fullName: string;
+  phone?: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  vehicleNumber?: string | null;
+  driverName?: string | null;
+  routeName?: string | null;
+  todaySales: number;
+  todayCash: number;
+  todayCredit: number;
+  todayBillsCount: number;
+  dailyTarget: number;
+  dailyAchievementPercentage: number;
+  monthlyTarget: number;
+  monthToDateSales: number;
+  monthlyAchievementPercentage: number;
 }
 
 export interface SystemSettings {
@@ -557,4 +577,69 @@ export interface RepTargetProgress {
   repName?: string;
   lorryVehicle?: string | null;
   routeName?: string | null;
+}
+
+export interface RepWiseSummary {
+  repId: string;
+  fullName: string;
+  username: string;
+  phone?: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  lorryId?: string | null;
+  vehicleNumber?: string | null;
+  driverName?: string | null;
+  routeName?: string | null;
+  routeCode?: string | null;
+  dailyTarget: number;
+  monthlyTarget: number;
+  targetNewClients: number;
+  periodSales: number;
+  periodCash: number;
+  periodCredit: number;
+  cashRatio: number;
+  ordersCount: number;
+  dailyAchievementPercentage: number;
+  monthToDateSales: number;
+  monthlyAchievementPercentage: number;
+  newClientsCount: number;
+  statusBadge: 'MET_TARGET' | 'ON_TRACK' | 'IN_PROGRESS';
+}
+
+export interface RepOrderLog {
+  orderId: string;
+  orderNumber: string;
+  paperBillNumber?: string | null;
+  customerId: string;
+  customerName: string;
+  customerCode: string;
+  repId?: string | null;
+  repName: string;
+  lorryId?: string | null;
+  vehicleNumber?: string | null;
+  routeName?: string | null;
+  netTotal: number;
+  cashReceived: number;
+  paidAmount: number;
+  balanceAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  chequeNumber?: string | null;
+  bankName?: string | null;
+  createdAt: string;
+}
+
+export interface RepPerformanceReport {
+  summary: {
+    totalRepSales: number;
+    totalRepCash: number;
+    totalRepCredit: number;
+    totalRepBills: number;
+    totalDailyTarget: number;
+    totalMonthlyTarget: number;
+    avgDailyAchievement: number;
+    avgMonthlyAchievement: number;
+    activeRepsCount: number;
+  };
+  repSummaries: RepWiseSummary[];
+  repOrders: RepOrderLog[];
 }

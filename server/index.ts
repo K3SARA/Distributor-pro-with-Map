@@ -3465,6 +3465,13 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
             lte: endDate
           }
         }
+      }),
+      prisma.user.findMany({
+        where: { role: 'REP' },
+        include: {
+          lorry: { include: { route: true } }
+        },
+        orderBy: { fullName: 'asc' }
       })
     ]);
 
@@ -3497,6 +3504,64 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       };
     });
 
+    // Sales Reps live performance breakdown
+    const reps = await prisma.user.findMany({
+      where: { role: 'REP' },
+      include: {
+        lorry: {
+          include: { route: true }
+        }
+      }
+    });
+
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const mtdOrders = await prisma.order.findMany({
+      where: {
+        createdAt: { gte: startOfMonth },
+        status: { not: 'CANCELLED' }
+      },
+      select: {
+        id: true,
+        lorryId: true,
+        netTotal: true
+      }
+    });
+
+    const repLiveStatus = reps.map((r: any) => {
+      const repOrdersToday = validOrders.filter(o => o.lorryId === r.lorryId);
+      const todaySales = repOrdersToday.reduce((acc, o) => acc + o.netTotal, 0);
+      const todayCash = repOrdersToday.reduce((acc, o) => acc + Math.min(o.netTotal, o.cashReceived || 0), 0);
+      const todayCredit = Math.max(0, todaySales - todayCash);
+      const todayBillsCount = repOrdersToday.length;
+
+      const repMtdOrders = mtdOrders.filter(o => o.lorryId === r.lorryId);
+      const monthToDateSales = repMtdOrders.reduce((acc, o) => acc + o.netTotal, 0);
+
+      const dailyTarget = r.dailyTarget || 20000;
+      const monthlyTarget = r.monthlyTarget || 500000;
+      const dailyAchievementPercentage = dailyTarget > 0 ? Math.round((todaySales / dailyTarget) * 100) : 0;
+      const monthlyAchievementPercentage = monthlyTarget > 0 ? Math.round((monthToDateSales / monthlyTarget) * 100) : 0;
+
+      return {
+        id: r.id,
+        fullName: r.fullName,
+        phone: r.phone,
+        status: r.status as 'ACTIVE' | 'INACTIVE',
+        vehicleNumber: r.lorry?.vehicleNumber || null,
+        driverName: r.lorry?.driverName || null,
+        routeName: r.lorry?.route?.name || 'Assigned Route',
+        todaySales,
+        todayCash,
+        todayCredit,
+        todayBillsCount,
+        dailyTarget,
+        dailyAchievementPercentage,
+        monthlyTarget,
+        monthToDateSales,
+        monthlyAchievementPercentage
+      };
+    });
+
     res.json({
       revenueToday,
       cashToday,
@@ -3508,6 +3573,7 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       lowStockCount: lowStockProducts.length,
       totalOutstanding: customerBalances._sum.outstandingBalance || 0,
       fleetStatus,
+      repLiveStatus,
       recentOrders: periodOrders.slice(0, 15),
       lowStockItems: lowStockProducts.slice(0, 5),
       period: {
@@ -3641,6 +3707,178 @@ app.get('/api/reports/lorry-performance', async (req: Request, res: Response) =>
       summary,
       lorrySummaries,
       loadings: enrichedLoadings
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sales Rep Performance, Targets & Route Distribution Report with date filtering
+app.get('/api/reports/rep-performance', async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const orderWhere: any = { status: { not: 'CANCELLED' } };
+    if (from || to) {
+      orderWhere.createdAt = {
+        gte: from ? new Date(from as string) : undefined,
+        lte: to ? new Date(to as string) : undefined
+      };
+    }
+
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    const [reps, ordersInPeriod, mtdOrders, customersInPeriod] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: 'REP' },
+        include: {
+          lorry: { include: { route: true } }
+        },
+        orderBy: { fullName: 'asc' }
+      }),
+      prisma.order.findMany({
+        where: orderWhere,
+        include: {
+          customer: true,
+          lorry: { include: { route: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.order.findMany({
+        where: {
+          createdAt: { gte: startOfMonth },
+          status: { not: 'CANCELLED' }
+        },
+        select: {
+          id: true,
+          lorryId: true,
+          netTotal: true
+        }
+      }),
+      prisma.customer.findMany({
+        where: from || to ? {
+          createdAt: {
+            gte: from ? new Date(from as string) : undefined,
+            lte: to ? new Date(to as string) : undefined
+          }
+        } : {},
+        select: {
+          id: true,
+          routeId: true
+        }
+      })
+    ]);
+
+    // Build Rep Summaries
+    const repSummaries = reps.map(r => {
+      const repOrders = ordersInPeriod.filter(o => o.lorryId === r.lorryId);
+      const periodSales = repOrders.reduce((sum, o) => sum + (o.netTotal || 0), 0);
+      const periodCash = repOrders.reduce((sum, o) => sum + Math.min(o.netTotal || 0, o.cashReceived || 0), 0);
+      const periodCredit = Math.max(0, periodSales - periodCash);
+      const cashRatio = periodSales > 0 ? (periodCash / periodSales) * 100 : 0;
+      const ordersCount = repOrders.length;
+
+      const dailyTarget = r.dailyTarget || 20000;
+      const monthlyTarget = r.monthlyTarget || 500000;
+      const targetNewClients = r.targetNewClients || 5;
+
+      const dailyAchievementPercentage = dailyTarget > 0 ? Math.round((periodSales / dailyTarget) * 100) : 0;
+
+      const repMtdOrders = mtdOrders.filter(o => o.lorryId === r.lorryId);
+      const monthToDateSales = repMtdOrders.reduce((sum, o) => sum + (o.netTotal || 0), 0);
+      const monthlyAchievementPercentage = monthlyTarget > 0 ? Math.round((monthToDateSales / monthlyTarget) * 100) : 0;
+
+      const newClientsCount = customersInPeriod.filter(c => c.routeId && c.routeId === r.lorry?.routeId).length;
+
+      const statusBadge: 'MET_TARGET' | 'ON_TRACK' | 'IN_PROGRESS' =
+        dailyAchievementPercentage >= 100
+          ? 'MET_TARGET'
+          : dailyAchievementPercentage >= 70
+            ? 'ON_TRACK'
+            : 'IN_PROGRESS';
+
+      return {
+        repId: r.id,
+        fullName: r.fullName,
+        username: r.username,
+        phone: r.phone,
+        status: r.status as 'ACTIVE' | 'INACTIVE',
+        lorryId: r.lorryId,
+        vehicleNumber: r.lorry?.vehicleNumber || null,
+        driverName: r.lorry?.driverName || null,
+        routeName: r.lorry?.route?.name || null,
+        routeCode: r.lorry?.route?.code || null,
+        dailyTarget,
+        monthlyTarget,
+        targetNewClients,
+        periodSales,
+        periodCash,
+        periodCredit,
+        cashRatio,
+        ordersCount,
+        dailyAchievementPercentage,
+        monthToDateSales,
+        monthlyAchievementPercentage,
+        newClientsCount,
+        statusBadge
+      };
+    });
+
+    // Build Rep Orders Detailed Log
+    const repOrders = ordersInPeriod.map(o => {
+      const rep = reps.find(r => r.lorryId === o.lorryId);
+      return {
+        orderId: o.id,
+        orderNumber: o.orderNumber,
+        paperBillNumber: o.paperBillNumber,
+        customerId: o.customerId,
+        customerName: o.customer?.name || 'Walk-in',
+        customerCode: o.customer?.code || '',
+        repId: rep?.id || null,
+        repName: rep?.fullName || o.lorry?.driverName || 'Driver Rep',
+        lorryId: o.lorryId,
+        vehicleNumber: o.lorry?.vehicleNumber || null,
+        routeName: o.lorry?.route?.name || (o as any).route?.name || null,
+        netTotal: o.netTotal,
+        cashReceived: o.cashReceived,
+        paidAmount: o.paidAmount,
+        balanceAmount: o.balanceAmount,
+        paymentMethod: o.paymentMethod,
+        paymentStatus: o.paymentStatus,
+        chequeNumber: (o as any).chequeNumber || null,
+        bankName: (o as any).bankName || null,
+        createdAt: o.createdAt.toISOString()
+      };
+    });
+
+    // Compute Summary totals across all reps
+    const totalRepSales = repSummaries.reduce((sum, r) => sum + r.periodSales, 0);
+    const totalRepCash = repSummaries.reduce((sum, r) => sum + r.periodCash, 0);
+    const totalRepCredit = repSummaries.reduce((sum, r) => sum + r.periodCredit, 0);
+    const totalRepBills = repSummaries.reduce((sum, r) => sum + r.ordersCount, 0);
+    const totalDailyTarget = repSummaries.reduce((sum, r) => sum + r.dailyTarget, 0);
+    const totalMonthlyTarget = repSummaries.reduce((sum, r) => sum + r.monthlyTarget, 0);
+    const avgDailyAchievement =
+      totalDailyTarget > 0 ? Math.round((totalRepSales / totalDailyTarget) * 100) : 0;
+    const totalMtdSales = repSummaries.reduce((sum, r) => sum + r.monthToDateSales, 0);
+    const avgMonthlyAchievement =
+      totalMonthlyTarget > 0 ? Math.round((totalMtdSales / totalMonthlyTarget) * 100) : 0;
+
+    const summary = {
+      totalRepSales,
+      totalRepCash,
+      totalRepCredit,
+      totalRepBills,
+      totalDailyTarget,
+      totalMonthlyTarget,
+      avgDailyAchievement,
+      avgMonthlyAchievement,
+      activeRepsCount: repSummaries.filter(r => r.status === 'ACTIVE').length
+    };
+
+    res.json({
+      summary,
+      repSummaries,
+      repOrders
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

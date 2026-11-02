@@ -19,6 +19,7 @@ import {
   ProductionRun,
   ManufacturingSummary,
   LorryPerformanceReport,
+  RepPerformanceReport,
   User,
   RepTargetProgress
 } from '../types';
@@ -189,6 +190,8 @@ export const ReportService = {
     api.get<DashboardStats>('/reports/dashboard-stats', { params: { from, to } }).then(r => r.data),
   getLorryPerformance: (from?: string, to?: string) =>
     api.get<LorryPerformanceReport>('/reports/lorry-performance', { params: { from, to } }).then(r => r.data),
+  getRepPerformance: (from?: string, to?: string) =>
+    api.get<RepPerformanceReport>('/reports/rep-performance', { params: { from, to } }).then(r => r.data),
   getRouteSales: (from?: string, to?: string) =>
     api.get<any[]>('/reports/route-sales', { params: { from, to } }).then(r => r.data),
   getSalesSummary: (from?: string, to?: string, lorryId?: string, routeId?: string) =>

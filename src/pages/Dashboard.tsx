@@ -14,7 +14,9 @@ import {
   RefreshCw,
   Clock,
   Wallet,
-  Calendar
+  Calendar,
+  Users,
+  Target
 } from 'lucide-react';
 import { ReportService, OrderService } from '../services/api';
 import { DashboardStats, Order } from '../types';
@@ -243,6 +245,93 @@ export const Dashboard: React.FC<DashboardProps> = ({
           })}
         </div>
       </div>
+
+      {/* Sales Reps Live Route & Target Performance */}
+      {stats && stats.repLiveStatus && stats.repLiveStatus.length > 0 && (
+        <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-xl">
+                  <Users className="w-4 h-4" />
+                </div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Sales Reps Live Performance & Route Tracking
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Real-time route quota monitoring, daily run rates, and monthly targets across sales field reps.
+              </p>
+            </div>
+            <span className="text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1 rounded-xl self-start sm:self-auto flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              {stats.repLiveStatus.filter(r => r.status === 'ACTIVE').length} Active Field Reps
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {stats.repLiveStatus.map((rep) => {
+              const isMet = rep.dailyAchievementPercentage >= 100;
+              return (
+                <div key={rep.id} className="p-4 rounded-2xl border border-slate-200/80 bg-white hover:border-blue-200 transition space-y-3.5 shadow-3xs">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900 text-sm">{rep.fullName}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          rep.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {rep.status}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                        <span className="font-medium text-slate-600">{rep.vehicleNumber || 'No Lorry'}</span>
+                        <span>•</span>
+                        <span className="truncate max-w-[140px]">{rep.routeName || 'General Route'}</span>
+                      </div>
+                    </div>
+                    <span className={`font-mono text-xs font-bold px-2 py-1 rounded-lg ${
+                      isMet ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60' : 'bg-blue-50 text-blue-700 border border-blue-200/60'
+                    }`}>
+                      {rep.dailyAchievementPercentage}%
+                    </span>
+                  </div>
+
+                  {/* Daily Target Progress */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-baseline text-xs">
+                      <span className="text-slate-500 font-medium">
+                        Today: <strong className="text-slate-900 font-mono">{formatMoney(rep.todaySales)}</strong>
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        Target: {formatMoney(rep.dailyTarget)}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isMet ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                        style={{ width: `${Math.min(rep.dailyAchievementPercentage, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Metric Chips */}
+                  <div className="p-2.5 bg-slate-50 rounded-xl grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Today Bills</span>
+                      <span className="font-mono font-bold text-slate-800">{rep.todayBillsCount} bills</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Month-to-Date</span>
+                      <span className="font-mono font-bold text-slate-800">{formatMoney(rep.monthToDateSales)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Low Stock Urgent Banner */}
       {stats && stats.lowStockCount > 0 && (

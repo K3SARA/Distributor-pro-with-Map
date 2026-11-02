@@ -13,17 +13,22 @@ import {
   Compass,
   RotateCcw,
   TrendingUp,
-  Receipt
+  Receipt,
+  Target,
+  Award,
+  Phone,
+  Mail,
+  CheckCircle2
 } from 'lucide-react';
 import { ReportService } from '../services/api';
-import { StockMovement, Customer, LorryLoading, LorryPerformanceReport } from '../types';
+import { StockMovement, Customer, LorryLoading, LorryPerformanceReport, RepPerformanceReport } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { DateRangeFilter, DatePreset } from '../components/DateRangeFilter';
 import { ProfitAndLoss } from './ProfitAndLoss';
 
 export const Reports: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const [activeTab, setActiveTab] = useState<'PNL' | 'LORRIES' | 'ROUTES' | 'SALES' | 'STOCK' | 'BALANCES'>('LORRIES');
+  const [activeTab, setActiveTab] = useState<'PNL' | 'LORRIES' | 'ROUTES' | 'SALES' | 'STOCK' | 'BALANCES' | 'REPS'>('LORRIES');
   const [loading, setLoading] = useState(false);
 
   // Date filter state
@@ -37,6 +42,7 @@ export const Reports: React.FC = () => {
   const [salesData, setSalesData] = useState<any>(null);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [balancesData, setBalancesData] = useState<any>(null);
+  const [repReport, setRepReport] = useState<RepPerformanceReport | null>(null);
 
   useEffect(() => {
     loadActiveReport();
@@ -66,6 +72,9 @@ export const Reports: React.FC = () => {
       } else if (activeTab === 'BALANCES') {
         const balances = await ReportService.getCustomerBalances();
         setBalancesData(balances);
+      } else if (activeTab === 'REPS') {
+        const data = await ReportService.getRepPerformance(dateRange.from, dateRange.to);
+        setRepReport(data);
       }
     } catch (err) {
       console.error('Failed to load report data', err);
@@ -126,6 +135,15 @@ export const Reports: React.FC = () => {
       csvContent += 'Customer Code,Name,Phone,Pricing Tier,Credit Limit,Outstanding Balance\n';
       balancesData.customers.forEach((c: Customer) => {
         csvContent += `"${c.code}","${c.name}","${c.phone}","${c.pricingTier}",${c.creditLimit},${c.outstandingBalance}\n`;
+      });
+    } else if (activeTab === 'REPS' && repReport) {
+      csvContent += 'Rep Name,Phone,Username,Status,Lorry,Route,Daily Target,Period Sales,Daily Target %,Month Sales,Monthly Target,Monthly Target %,Cash Sales,Credit Sales,Cash Ratio %,Bills Count\n';
+      repReport.repSummaries.forEach((r) => {
+        csvContent += `"${r.fullName}","${r.phone || ''}","${r.username || ''}","${r.status}","${r.vehicleNumber || ''}","${r.routeName || ''}",${r.dailyTarget},${r.periodSales},${r.dailyAchievementPercentage},${r.monthToDateSales},${r.monthlyTarget},${r.monthlyAchievementPercentage},${r.periodCash},${r.periodCredit},${Math.round(r.cashRatio)},${r.ordersCount}\n`;
+      });
+      csvContent += '\nOrder Number,Paper Bill,Date,Rep,Customer,Route,Lorry,Net Total,Cash Received,Payment Method,Payment Status\n';
+      repReport.repOrders.forEach((o) => {
+        csvContent += `"${o.orderNumber}","${o.paperBillNumber || ''}","${new Date(o.createdAt).toLocaleDateString()}","${o.repName}","${o.customerName}","${o.routeName || ''}","${o.vehicleNumber || ''}",${o.netTotal},${o.cashReceived},"${o.paymentMethod}","${o.paymentStatus}"\n`;
       });
     }
 
@@ -190,6 +208,13 @@ export const Reports: React.FC = () => {
             <Truck className="w-3.5 h-3.5 text-blue-600" /> Lorry Audit
           </button>
           <button
+            onClick={() => setActiveTab('REPS')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${activeTab === 'REPS' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+          >
+            <Users className="w-3.5 h-3.5 text-blue-600" /> Sales Reps
+          </button>
+          <button
             onClick={() => setActiveTab('ROUTES')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${activeTab === 'ROUTES' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
@@ -239,6 +264,7 @@ export const Reports: React.FC = () => {
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-slate-900">
                 {activeTab === 'LORRIES' && 'Lorry Morning Load & Evening Settlement Audit'}
+                {activeTab === 'REPS' && 'Sales Reps Quota Performance & Route Distribution Audit'}
                 {activeTab === 'ROUTES' && `${routeSummaries.length || 3} Routes Distribution Performance Analysis`}
                 {activeTab === 'SALES' && 'Daily Driver Sales Bills Log'}
                 {activeTab === 'STOCK' && 'Central Warehouse Stock Movements (Inbounds, Loads, Returns)'}
@@ -525,6 +551,351 @@ export const Reports: React.FC = () => {
                         <td className="py-3.5 px-3.5 text-right font-mono text-emerald-700 bg-emerald-100/40">{formatMoney(summary.totalCashSales)}</td>
                         <td className="py-3.5 px-3.5 text-right font-mono text-amber-700 bg-amber-100/40">{formatMoney(summary.totalCreditSale)}</td>
                         <td className="py-3.5 px-3.5 text-center font-mono text-[11px] text-slate-700">{cashRatio}% Cash</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 1.5 SALES REPS REPORT */}
+        {activeTab === 'REPS' && (() => {
+          if (!repReport) {
+            return (
+              <div className="py-12 text-center text-slate-400">
+                <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-semibold">No Sales Rep data found for this period.</p>
+              </div>
+            );
+          }
+
+          const { summary, repSummaries, repOrders } = repReport;
+          const cashRatio = summary.totalRepSales > 0 ? (summary.totalRepCash / summary.totalRepSales) * 100 : 0;
+          const creditRatio = summary.totalRepSales > 0 ? (summary.totalRepCredit / summary.totalRepSales) * 100 : 0;
+
+          return (
+            <div className="space-y-6">
+              {/* Team 4-Card Summary */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Total Rep Field Sales
+                  </span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-mono text-xl sm:text-2xl font-bold text-slate-900">
+                      {formatMoney(summary.totalRepSales)}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-500">
+                      {summary.totalRepBills} Bills
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-emerald-50/50 border border-emerald-200/70 rounded-2xl space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
+                    Cash Collected
+                  </span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-mono text-xl sm:text-2xl font-bold text-emerald-700">
+                      {formatMoney(summary.totalRepCash)}
+                    </span>
+                    <span className="text-xs font-bold text-emerald-600">
+                      {Math.round(cashRatio)}% Total
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50/50 border border-amber-200/70 rounded-2xl space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800 block">
+                    Credit Given
+                  </span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-mono text-xl sm:text-2xl font-bold text-amber-700">
+                      {formatMoney(summary.totalRepCredit)}
+                    </span>
+                    <span className="text-xs font-bold text-amber-600">
+                      {Math.round(creditRatio)}% Total
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-blue-50/50 border border-blue-200/70 rounded-2xl space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
+                    Avg Quota Attainment
+                  </span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="font-mono text-xl sm:text-2xl font-bold text-blue-700">
+                      {summary.avgDailyAchievement}%
+                    </span>
+                    <span className="text-xs font-semibold text-blue-600">
+                      {summary.activeRepsCount} Active Reps
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cash vs Credit Team Bar */}
+              <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 space-y-2">
+                <div className="flex justify-between items-center text-xs font-semibold">
+                  <span className="text-emerald-700 flex items-center gap-1.5 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                    Cash Collected: {formatMoney(summary.totalRepCash)} ({Math.round(cashRatio)}%)
+                  </span>
+                  <span className="text-amber-700 flex items-center gap-1.5 font-bold">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                    Credit Given: {formatMoney(summary.totalRepCredit)} ({Math.round(creditRatio)}%)
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex">
+                  <div
+                    style={{ width: `${cashRatio}%` }}
+                    className="bg-emerald-500 h-full transition-all duration-300"
+                  />
+                  <div
+                    style={{ width: `${creditRatio}%` }}
+                    className="bg-amber-500 h-full transition-all duration-300"
+                  />
+                </div>
+              </div>
+
+              {/* Rep-Wise Quota Performance Cards */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Sales Reps Breakdown & Quota Achievement
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    {repSummaries.length} Representatives
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {repSummaries.map((r) => {
+                    const badgeStyles =
+                      r.statusBadge === 'MET_TARGET'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                        : r.statusBadge === 'ON_TRACK'
+                        ? 'bg-blue-50 text-blue-700 border-blue-200/60'
+                        : 'bg-amber-50 text-amber-700 border-amber-200/60';
+
+                    const badgeLabel =
+                      r.statusBadge === 'MET_TARGET'
+                        ? 'Target Met'
+                        : r.statusBadge === 'ON_TRACK'
+                        ? 'On Track'
+                        : 'In Progress';
+
+                    return (
+                      <div key={r.repId} className="p-4 bg-white border border-slate-200/80 rounded-2xl shadow-2xs space-y-3.5 hover:border-slate-300 transition">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-sm">{r.fullName}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyles}`}>
+                                {badgeLabel}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">
+                                {r.vehicleNumber || 'No Lorry'}
+                              </span>
+                              <span className="text-slate-400">•</span>
+                              <span className="text-slate-600 font-medium">{r.routeName || 'General Route'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Period Sales Header */}
+                        <div className="flex items-baseline justify-between pt-1">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Period Sales</span>
+                          <div className="text-right">
+                            <span className="font-mono font-bold text-slate-900 text-base">
+                              {formatMoney(r.periodSales)}
+                            </span>
+                            <span className="text-[11px] text-slate-400 block">
+                              {r.ordersCount} bills
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Daily Target Progress */}
+                        <div className="space-y-1.5 pt-1">
+                          <div className="flex justify-between items-baseline text-xs">
+                            <span className="text-slate-500 font-medium">Daily Target</span>
+                            <div className="text-right">
+                              <span className="font-mono font-bold text-slate-800 text-xs">
+                                {r.dailyAchievementPercentage}%
+                              </span>
+                              <span className="text-[10px] text-slate-400 ml-1.5">
+                                ({formatMoney(r.dailyTarget)})
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                r.dailyAchievementPercentage >= 100 ? 'bg-emerald-500' : 'bg-blue-600'
+                              }`}
+                              style={{ width: `${Math.min(r.dailyAchievementPercentage, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Month to Date Progress */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between items-baseline text-xs">
+                            <span className="text-slate-500 font-medium">Month-to-Date</span>
+                            <div className="text-right">
+                              <span className="font-mono font-bold text-slate-800 text-xs">
+                                {r.monthlyAchievementPercentage}%
+                              </span>
+                              <span className="text-[10px] text-slate-400 ml-1.5">
+                                ({formatMoney(r.monthToDateSales)} / {formatMoney(r.monthlyTarget)})
+                              </span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                r.monthlyAchievementPercentage >= 100 ? 'bg-emerald-500' : 'bg-indigo-600'
+                              }`}
+                              style={{ width: `${Math.min(r.monthlyAchievementPercentage, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Cash vs Credit Mini Cards */}
+                        <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-100">
+                          <div className="p-2 bg-emerald-50/60 rounded-xl border border-emerald-100/70">
+                            <span className="text-[9px] uppercase font-bold text-emerald-800 block">Cash Sales</span>
+                            <span className="font-mono font-bold text-emerald-700 text-xs block mt-0.5">
+                              {formatMoney(r.periodCash)}
+                            </span>
+                            <span className="text-[9px] text-emerald-600 block mt-0.5 font-medium">
+                              {Math.round(r.cashRatio)}% Cash
+                            </span>
+                          </div>
+
+                          <div className="p-2 bg-amber-50/60 rounded-xl border border-amber-100/70">
+                            <span className="text-[9px] uppercase font-bold text-amber-800 block">Credit Sales</span>
+                            <span className="font-mono font-bold text-amber-700 text-xs block mt-0.5">
+                              {formatMoney(r.periodCredit)}
+                            </span>
+                            <span className="text-[9px] text-amber-600 block mt-0.5 font-medium">
+                              {Math.round(100 - r.cashRatio)}% Credit
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Rep Orders Detailed Ledger Table */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
+                <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Sales Reps Orders & Invoices Log
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-semibold bg-white border border-slate-200 px-2 py-0.5 rounded-md">
+                    {repOrders.length} Invoices • {getPresetLabel()}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+                  <table className="w-full text-left border-collapse text-xs min-w-[840px]">
+                    <thead>
+                      <tr className="bg-slate-50/80 text-slate-500 text-[11px] font-bold uppercase tracking-wider border-b border-slate-100">
+                        <th className="py-3 px-3.5">Bill #</th>
+                        <th className="py-3 px-3.5">Date</th>
+                        <th className="py-3 px-3.5">Sales Rep</th>
+                        <th className="py-3 px-3.5">Retail Client</th>
+                        <th className="py-3 px-3.5">Route / Lorry</th>
+                        <th className="py-3 px-3.5 text-right">Net Total</th>
+                        <th className="py-3 px-3.5 text-right">Cash Received</th>
+                        <th className="py-3 px-3.5">Method</th>
+                        <th className="py-3 px-3.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {repOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-12 text-center text-slate-400">
+                            No bills found for the selected period.
+                          </td>
+                        </tr>
+                      ) : (
+                        repOrders.map((ord) => (
+                          <tr key={ord.orderId} className="hover:bg-slate-50/60 transition">
+                            <td className="py-3 px-3.5 font-mono font-bold text-slate-900">
+                              <div>{ord.orderNumber}</div>
+                              {ord.paperBillNumber && (
+                                <div className="text-[10px] text-blue-600 font-normal">Slip #{ord.paperBillNumber}</div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3.5 text-slate-600">
+                              {new Date(ord.createdAt).toLocaleDateString()}
+                              <span className="text-[10px] text-slate-400 block">
+                                {new Date(ord.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3.5 font-semibold text-slate-900">
+                              {ord.repName}
+                            </td>
+                            <td className="py-3 px-3.5">
+                              <span className="font-semibold text-slate-900 block">{ord.customerName}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{ord.customerCode}</span>
+                            </td>
+                            <td className="py-3 px-3.5 text-slate-600">
+                              <span className="font-medium text-slate-800 block">{ord.routeName || 'General'}</span>
+                              <span className="text-[10px] text-slate-400">{ord.vehicleNumber || 'Warehouse'}</span>
+                            </td>
+                            <td className="py-3 px-3.5 text-right font-mono font-bold text-slate-900">
+                              {formatMoney(ord.netTotal)}
+                            </td>
+                            <td className="py-3 px-3.5 text-right font-mono text-emerald-700 font-semibold">
+                              {formatMoney(ord.cashReceived)}
+                            </td>
+                            <td className="py-3 px-3.5">
+                              <span className="font-semibold text-slate-700">{ord.paymentMethod}</span>
+                              {ord.chequeNumber && (
+                                <span className="text-[10px] text-purple-600 block font-mono">
+                                  #{ord.chequeNumber}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3.5 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                  ord.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-200/60'
+                                }`}
+                              >
+                                {ord.paymentStatus}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-50/90 border-t-2 border-slate-200 font-bold text-xs text-slate-900">
+                      <tr>
+                        <td colSpan={5} className="py-3.5 px-3.5 uppercase tracking-wider text-slate-600 font-extrabold text-[11px]">
+                          Total All Sales Reps Orders
+                        </td>
+                        <td className="py-3.5 px-3.5 text-right font-mono text-slate-900">
+                          {formatMoney(summary.totalRepSales)}
+                        </td>
+                        <td className="py-3.5 px-3.5 text-right font-mono text-emerald-700 bg-emerald-100/40">
+                          {formatMoney(summary.totalRepCash)}
+                        </td>
+                        <td colSpan={2} className="py-3.5 px-3.5 text-center font-mono text-[11px] text-slate-700">
+                          {Math.round(cashRatio)}% Cash Collected
+                        </td>
                       </tr>
                     </tfoot>
                   </table>
