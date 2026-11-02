@@ -1592,13 +1592,13 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                 <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Sales</span>
                 <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">{formatMoney(finishedBillsSummary.totalValue)}</span>
               </div>
-              <div className="p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-emerald-600 block tracking-wider">Cash Collected</span>
-                <span className="font-mono font-bold text-xs sm:text-sm text-emerald-700">{formatMoney(finishedBillsSummary.totalCash)}</span>
+              <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200/80 shadow-2xs">
+                <span className="text-[10px] uppercase font-bold text-emerald-700 block tracking-wider">Cash Collected</span>
+                <span className="font-mono font-bold text-xs sm:text-sm text-emerald-800">{formatMoney(finishedBillsSummary.totalCash)}</span>
               </div>
-              <div className="p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-amber-600 block tracking-wider">Credit Given</span>
-                <span className="font-mono font-bold text-xs sm:text-sm text-amber-700">{formatMoney(finishedBillsSummary.totalCredit)}</span>
+              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200/80 shadow-2xs">
+                <span className="text-[10px] uppercase font-bold text-rose-700 block tracking-wider">Credit Given</span>
+                <span className="font-mono font-bold text-xs sm:text-sm text-rose-800">{formatMoney(finishedBillsSummary.totalCredit)}</span>
               </div>
             </div>
 
@@ -1629,6 +1629,16 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                   const count = tab === 'ALL'
                     ? finishedBills.length
                     : finishedBills.filter(b => b.paymentMethod === tab).length;
+
+                  const activeStyles =
+                    tab === 'CASH'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : tab === 'CREDIT'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : tab === 'CHEQUE'
+                      ? 'bg-orange-600 text-white shadow-2xs'
+                      : 'bg-slate-900 text-white shadow-2xs';
+
                   return (
                     <button
                       key={tab}
@@ -1636,7 +1646,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                       onClick={() => setBillsFilter(tab)}
                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 ${
                         billsFilter === tab
-                          ? 'bg-blue-600 text-white shadow-2xs'
+                          ? activeStyles
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
@@ -1676,29 +1686,64 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                   const totalFreeQty = bill.items.reduce((acc, i) => acc + (i.freeQuantity || 0), 0);
                   const creditDue = Math.max(0, bill.netTotal - (bill.cashReceived || 0));
 
+                  // Color Themes:
+                  // Cash bills: Light Green
+                  // Cheque bills & Partial Credit bills: Light Orange
+                  // Pure Credit bills: Light Red
+                  const isCash = bill.paymentMethod === 'CASH';
+                  const isCheque = bill.paymentMethod === 'CHEQUE';
+                  const isPartialCredit = bill.paymentMethod === 'CREDIT' && bill.paymentStatus === 'PARTIAL';
+
+                  const theme = isCash
+                    ? {
+                        container: 'bg-emerald-50/70 border-emerald-200/90 hover:border-emerald-300',
+                        badge: 'bg-emerald-100 text-emerald-800 border-emerald-300/80',
+                        tag: 'bg-white text-emerald-950 border-emerald-200',
+                        itemsBox: 'bg-emerald-100/40 border border-emerald-200/60 text-emerald-900',
+                        button: 'bg-emerald-100/70 hover:bg-emerald-200/80 text-emerald-800 border-emerald-300/60',
+                        divider: 'border-emerald-200/60',
+                        expandedBox: 'bg-white border-emerald-200',
+                        label: 'CASH'
+                      }
+                    : isCheque || isPartialCredit
+                    ? {
+                        container: 'bg-orange-50/70 border-orange-200/90 hover:border-orange-300',
+                        badge: 'bg-orange-100 text-orange-900 border-orange-300/80',
+                        tag: 'bg-white text-orange-950 border-orange-200',
+                        itemsBox: 'bg-orange-100/40 border border-orange-200/60 text-orange-900',
+                        button: 'bg-orange-100/70 hover:bg-orange-200/80 text-orange-900 border-orange-300/60',
+                        divider: 'border-orange-200/60',
+                        expandedBox: 'bg-white border-orange-200',
+                        label: isCheque ? 'CHEQUE' : 'PARTIAL CREDIT'
+                      }
+                    : {
+                        container: 'bg-rose-50/70 border-rose-200/90 hover:border-rose-300',
+                        badge: 'bg-rose-100 text-rose-900 border-rose-300/80',
+                        tag: 'bg-white text-rose-950 border-rose-200',
+                        itemsBox: 'bg-rose-100/40 border border-rose-200/60 text-rose-900',
+                        button: 'bg-rose-100/70 hover:bg-rose-200/80 text-rose-900 border-rose-300/60',
+                        divider: 'border-rose-200/60',
+                        expandedBox: 'bg-white border-rose-200',
+                        label: 'CREDIT'
+                      };
+
                   return (
                     <div
                       key={bill.id}
-                      className="bg-white rounded-2xl border border-slate-200/80 p-3.5 shadow-2xs hover:border-slate-300 transition space-y-2.5"
+                      className={`rounded-2xl border p-3.5 shadow-2xs transition space-y-2.5 ${theme.container}`}
                     >
                       {/* Top Row: Slip #, Time & Net Total */}
-                      <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
+                      <div className={`flex items-start justify-between gap-2 border-b pb-2 ${theme.divider}`}>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200/60">
+                            <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded-lg border shadow-3xs ${theme.tag}`}>
                               #{bill.paperBillNumber || bill.orderNumber}
                             </span>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              bill.paymentMethod === 'CASH'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
-                                : bill.paymentMethod === 'CREDIT'
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200/60'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200/60'
-                            }`}>
-                              {bill.paymentMethod}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${theme.badge}`}>
+                              {theme.label}
                             </span>
                           </div>
-                          <p className="text-[10px] text-slate-400 font-mono mt-1">
+                          <p className="text-[10px] text-slate-500 font-mono mt-1">
                             {new Date(bill.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(bill.createdAt).toLocaleDateString()}
                           </p>
                         </div>
@@ -1737,7 +1782,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                       </div>
 
                       {/* Items Summary & Expand Trigger */}
-                      <div className="bg-slate-50/80 rounded-xl p-2 flex items-center justify-between text-[11px] text-slate-600">
+                      <div className={`rounded-xl p-2 flex items-center justify-between text-[11px] ${theme.itemsBox}`}>
                         <div className="flex items-center gap-1.5 truncate">
                           <span className="font-semibold text-slate-800">{bill.items.length} Products</span>
                           <span>•</span>
@@ -1761,7 +1806,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
                       {/* Expanded Items Breakdown */}
                       {isExpanded && (
-                        <div className="border border-slate-200/60 rounded-xl p-2.5 bg-white space-y-1.5 text-xs animate-in fade-in">
+                        <div className={`border rounded-xl p-2.5 space-y-1.5 text-xs animate-in fade-in ${theme.expandedBox}`}>
                           <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
                             <span>Item Name</span>
                             <span>Line Total</span>
@@ -1792,7 +1837,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                           onClick={() => {
                             onViewInvoice?.(bill);
                           }}
-                          className="flex-1 py-1.5 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs"
+                          className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-3xs ${theme.button}`}
                         >
                           <Printer className="w-3.5 h-3.5" />
                           <span>View & Print 80mm Receipt</span>
