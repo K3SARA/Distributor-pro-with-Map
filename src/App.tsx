@@ -22,6 +22,7 @@ import { ProfitAndLoss } from './pages/ProfitAndLoss';
 import { Suppliers } from './pages/Suppliers';
 import { Expenses } from './pages/Expenses';
 import { Settings } from './pages/Settings';
+import { Cheques } from './pages/Cheques';
 import { Manufacturing } from './pages/Manufacturing';
 import { Login } from './pages/Login';
 import { RepMobilePortal } from './pages/RepMobilePortal';
@@ -163,6 +164,10 @@ export const AppContent: React.FC = () => {
 
           <div className={currentTab === 'customers' ? '' : 'hidden'}>
             <Customers onViewInvoice={(order) => setActiveInvoiceOrder(order)} />
+          </div>
+
+          <div className={currentTab === 'cheques' ? '' : 'hidden'}>
+            <Cheques onViewInvoice={(order) => setActiveInvoiceOrder(order)} />
           </div>
 
           <div className={currentTab === 'reports' ? '' : 'hidden'}>

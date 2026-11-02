@@ -78,6 +78,9 @@ export const LorryService = {
     discountAmount?: number;
     discountPercentage?: number;
     notes?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
     settlePreviousBills?: { orderId: string; amount: number; paymentMethod?: string }[];
   }) => api.post<Order>(`/lorries/${id}/bills`, payload).then(r => r.data),
   settleLorry: (id: string, payload: {
@@ -134,11 +137,51 @@ export const OrderService = {
     discountAmount?: number;
     discountPercentage?: number;
     notes?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
     lorryId?: string;
     settlePreviousBills?: { orderId: string; amount: number; paymentMethod?: string }[];
   }) => api.post<Order>('/orders', payload).then(r => r.data),
   updateStatus: (id: string, status: string) =>
     api.patch<Order>(`/orders/${id}/status`, { status }).then(r => r.data)
+};
+
+export interface ChequeStats {
+  totalCount: number;
+  totalAmount: number;
+  pendingCount: number;
+  pendingAmount: number;
+  maturedCount: number;
+  maturedAmount: number;
+  depositedCount: number;
+  depositedAmount: number;
+  clearedCount: number;
+  clearedAmount: number;
+  bouncedCount: number;
+  bouncedAmount: number;
+}
+
+export const ChequeService = {
+  getAll: (params?: { status?: string; search?: string }) =>
+    api.get<CustomerPayment[]>('/cheques', { params }).then(r => r.data),
+  getStats: () =>
+    api.get<ChequeStats>('/cheques/stats').then(r => r.data),
+  updateStatus: (id: string, payload: {
+    status: 'PENDING' | 'DEPOSITED' | 'CLEARED' | 'BOUNCED';
+    depositBank?: string;
+    depositDate?: string;
+    clearedDate?: string;
+    bounceReason?: string;
+    notes?: string;
+  }) => api.put<CustomerPayment>(`/cheques/${id}/status`, payload).then(r => r.data),
+  update: (id: string, payload: {
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+    notes?: string;
+    depositBank?: string;
+  }) => api.put<CustomerPayment>(`/cheques/${id}`, payload).then(r => r.data)
 };
 
 export const ReportService = {

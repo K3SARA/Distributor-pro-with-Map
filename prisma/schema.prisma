@@ -187,6 +187,9 @@ model Order {
   balanceAmount  Float @default(0.0) // Remaining unpaid balance on this bill
 
   notes        String?
+  chequeNumber String?
+  bankName     String?
+  chequeDate   DateTime?
   dispatchedAt DateTime?
   deliveredAt  DateTime? @default(now())
   createdAt    DateTime  @default(now())
@@ -297,6 +300,12 @@ model CustomerPayment {
   chequeNumber  String?
   bankName      String?
   chequeDate    DateTime?
+  chequeStatus  String?   @default("PENDING") // PENDING (In Hand), DEPOSITED, CLEARED, BOUNCED
+  depositDate   DateTime?
+  clearedDate   DateTime?
+  bouncedDate   DateTime?
+  depositBank   String?
+  bounceReason  String?
   reference     String?   // e.g. Bank slip or transaction ID
   notes         String?
   collectedBy   String?   // Driver name, Sales rep, or Cashier

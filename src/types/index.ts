@@ -174,6 +174,12 @@ export interface CustomerPayment {
   chequeNumber?: string | null;
   bankName?: string | null;
   chequeDate?: string | null;
+  chequeStatus?: 'PENDING' | 'DEPOSITED' | 'CLEARED' | 'BOUNCED' | null;
+  depositDate?: string | null;
+  clearedDate?: string | null;
+  bouncedDate?: string | null;
+  depositBank?: string | null;
+  bounceReason?: string | null;
   reference?: string | null;
   notes?: string | null;
   collectedBy?: string | null;
@@ -219,6 +225,9 @@ export interface Order {
   status: 'PENDING' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED';
   paymentStatus: 'UNPAID' | 'PARTIAL' | 'PAID';
   paymentMethod: 'CASH' | 'CREDIT' | 'CHEQUE';
+  chequeNumber?: string | null;
+  bankName?: string | null;
+  chequeDate?: string | null;
   subtotal: number;
   discountAmount: number;
   taxAmount: number;

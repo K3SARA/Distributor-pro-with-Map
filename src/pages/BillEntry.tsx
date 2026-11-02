@@ -55,6 +55,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   const [billItems, setBillItems] = useState<BillItemRow[]>([{ productId: '', quantity: 1, freeQuantity: 0 }]);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'CHEQUE'>('CASH');
   const [cashReceived, setCashReceived] = useState<string>('');
+  const [chequeNumber, setChequeNumber] = useState<string>('');
+  const [bankName, setBankName] = useState<string>('');
+  const [chequeDate, setChequeDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState<string>('');
 
   // Customer Unpaid Bills (for Bill-to-Bill clearance / knock-off)
@@ -376,6 +379,14 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
       setSubmitting(true);
       const parsedCash = parseFloat(cashReceived) || 0;
 
+      if (paymentMethod === 'CHEQUE') {
+        if (!chequeNumber.trim()) {
+          setErrorMessage('Please provide the Cheque Number for cheque payment.');
+          setSubmitting(false);
+          return;
+        }
+      }
+
       // Prepare previous bill clearance payload if toggled
       const previousBillsPayload =
         settlePreviousBill && customerUnpaidBills.length > 0 && parseFloat(settleAmount) > 0
@@ -399,6 +410,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
           })),
           paymentMethod,
           cashReceived: parsedCash,
+          chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber.trim() : undefined,
+          bankName: paymentMethod === 'CHEQUE' ? (bankName.trim() || undefined) : undefined,
+          chequeDate: paymentMethod === 'CHEQUE' ? (chequeDate || undefined) : undefined,
           notes: notes.trim() || undefined,
           settlePreviousBills: previousBillsPayload
         });
@@ -421,6 +435,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
           })),
           paymentMethod,
           cashReceived: parsedCash,
+          chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber.trim() : undefined,
+          bankName: paymentMethod === 'CHEQUE' ? (bankName.trim() || undefined) : undefined,
+          chequeDate: paymentMethod === 'CHEQUE' ? (chequeDate || undefined) : undefined,
           notes: notes.trim() || undefined,
           settlePreviousBills: previousBillsPayload
         });
@@ -443,6 +460,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
       setWalkInPhone('');
       setSelectedCustomerId(billMode === 'WALK_IN' ? 'walk-in' : '');
       setCashReceived('');
+      setChequeNumber('');
+      setBankName('');
+      setChequeDate(new Date().toISOString().split('T')[0]);
       setNotes('');
 
       // Refresh list & stocks
@@ -932,6 +952,61 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                   </div>
                 </div>
               </div>
+
+              {/* Cheque Details when CHEQUE is selected */}
+              {paymentMethod === 'CHEQUE' && (
+                <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                      <CreditCard className="w-4 h-4 text-blue-600" />
+                      Cheque Information (Tracked in Admin Cheque Management)
+                    </span>
+                    <span className="text-[11px] font-semibold text-blue-600 bg-white px-2.5 py-0.5 rounded-md border border-blue-200">
+                      Auto-allocated to Cheque Registry
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 block mb-1">
+                        Cheque Number <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={chequeNumber}
+                        onChange={(e) => setChequeNumber(e.target.value)}
+                        placeholder="e.g. 049182"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 block mb-1">
+                        Bank Name <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={bankName}
+                        onChange={(e) => setBankName(e.target.value)}
+                        placeholder="e.g. Commercial Bank, BOC..."
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 block mb-1">
+                        Cheque Maturity Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={chequeDate}
+                        onChange={(e) => setChequeDate(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Total Driver Cash Handover Breakdown if previous bill is settled */}
               {settlePreviousBill && parseFloat(settleAmount) > 0 && (

@@ -94,6 +94,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
   // Step 5: Checkout
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'CHEQUE'>('CREDIT');
+  const [chequeNumber, setChequeNumber] = useState<string>('');
+  const [bankName, setBankName] = useState<string>('');
+  const [chequeDate, setChequeDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [globalDiscountPercent, setGlobalDiscountPercent] = useState<number>(0);
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -400,6 +403,17 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       return;
     }
 
+    if (paymentMethod === 'CHEQUE') {
+      if (!chequeNumber.trim()) {
+        setErrorMessage('Please enter the Cheque Number.');
+        return;
+      }
+      if (!bankName.trim()) {
+        setErrorMessage('Please enter or select the Bank Name.');
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
       setErrorMessage(null);
@@ -432,6 +446,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         settlePreviousBills: previousBillsPayload
       };
 
+      if (paymentMethod === 'CHEQUE') {
+        orderPayload.chequeNumber = chequeNumber.trim();
+        orderPayload.bankName = bankName.trim();
+        orderPayload.chequeDate = chequeDate || undefined;
+      }
+
       let createdOrder: Order;
       if (selectedLorryId) {
         createdOrder = await LorryService.enterDriverBill(selectedLorryId, orderPayload);
@@ -456,6 +476,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     setCustomerUnpaidBills([]);
     setSettlePrevAmount('');
     setCollectPrevBill(false);
+    setChequeNumber('');
+    setBankName('');
+    setChequeDate(new Date().toISOString().split('T')[0]);
     setCheckoutSuccessOrder(null);
     setCurrentStep(1);
     setCustomerSearch('');
@@ -1161,6 +1184,78 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               </div>
             </div>
 
+            {/* Cheque Details Card */}
+            {paymentMethod === 'CHEQUE' && (
+              <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-2.5 animate-fadeIn shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5 text-blue-600" />
+                    Customer Cheque Details
+                  </span>
+                  <span className="text-[10px] text-blue-600 font-semibold bg-white px-2 py-0.5 rounded-md border border-blue-200">
+                    Wired to Admin
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                      Cheque Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={chequeNumber}
+                      onChange={(e) => setChequeNumber(e.target.value)}
+                      placeholder="e.g. 049182"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                      Cheque Maturity Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={chequeDate}
+                      onChange={(e) => setChequeDate(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 block mb-1">
+                    Bank Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder="Enter or select bank..."
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 mb-1.5"
+                  />
+                  {/* Quick Bank Chips */}
+                  <div className="flex flex-wrap gap-1">
+                    {['Commercial Bank', 'BOC', 'Sampath Bank', 'HNB', "People's Bank", 'Seylan Bank', 'NDB'].map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => setBankName(b)}
+                        className={`text-[10px] px-2 py-0.5 rounded-md font-medium transition cursor-pointer ${
+                          bankName === b
+                            ? 'bg-blue-600 text-white font-bold'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Final Total Card */}
             <div className="p-3.5 bg-slate-900 text-white rounded-xl flex items-center justify-between">
               <div>
@@ -1204,9 +1299,15 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             </div>
 
             <h3 className="text-base font-bold text-slate-900 mb-0.5">Bill Issued Successfully!</h3>
-            <p className="text-xs text-slate-500 font-mono mb-4">
+            <p className="text-xs text-slate-500 font-mono mb-2">
               #{checkoutSuccessOrder.paperBillNumber || checkoutSuccessOrder.orderNumber} • {formatMoney(checkoutSuccessOrder.netTotal)}
             </p>
+            {checkoutSuccessOrder.paymentMethod === 'CHEQUE' && (
+              <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-xl text-left text-[11px] text-blue-900 font-mono flex items-center justify-between">
+                <span>Cheque: #{checkoutSuccessOrder.chequeNumber || 'N/A'}</span>
+                <span className="font-sans font-bold text-blue-700">{checkoutSuccessOrder.bankName || 'Cheque Payment'}</span>
+              </div>
+            )}
 
             <div className="space-y-2">
               <button

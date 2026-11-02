@@ -1854,6 +1854,9 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
     paymentMethod, // CASH, CREDIT, CHEQUE
     cashReceived,
     notes,
+    chequeNumber,
+    bankName,
+    chequeDate,
     settlePreviousBills // optional array: [{ orderId: string, amount: number, paymentMethod?: string }]
   } = req.body;
 
@@ -1967,7 +1970,10 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
 
       const netTotal = Math.max(0, subtotal - discountAmount);
 
-      const paidAmount = parseFloat(cashReceived !== undefined ? cashReceived : (paymentMethod === 'CASH' ? netTotal : 0));
+      const isCheque = paymentMethod === 'CHEQUE';
+      const paidAmount = isCheque
+        ? netTotal
+        : parseFloat(cashReceived !== undefined ? cashReceived : (paymentMethod === 'CASH' ? netTotal : 0));
       const paymentStatus = paidAmount >= netTotal ? 'PAID' : (paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
       const balanceAmount = Math.max(0, netTotal - paidAmount);
 
@@ -1993,11 +1999,14 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           status: 'DELIVERED',
           paymentStatus,
           paymentMethod: paymentMethod || 'CASH',
+          chequeNumber: isCheque ? (chequeNumber?.trim() || null) : null,
+          bankName: isCheque ? (bankName?.trim() || null) : null,
+          chequeDate: isCheque && chequeDate ? new Date(chequeDate) : (isCheque ? new Date() : null),
           subtotal,
           discountAmount,
           taxAmount: 0.0,
           netTotal,
-          cashReceived: paidAmount,
+          cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
           balanceAmount,
           notes: notes?.trim() || `Driver: ${lorry.driverName} (${lorry.vehicleNumber})`,
@@ -2006,7 +2015,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           items: {
             create: orderItemsToCreate
           }
-        },
+        } as any,
         include: {
           customer: true,
           lorry: { include: { route: true } },
@@ -2014,6 +2023,43 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           items: { include: { product: true } }
         }
       });
+
+      // 3.1 If paid by Cheque, record a CustomerPayment so Cheque Management can track & clear it
+      if (isCheque && netTotal > 0) {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const countTodayRcpt = await tx.customerPayment.count({
+          where: { createdAt: { gte: startOfToday, lte: endOfToday } }
+        });
+        const rcptNum = `RCPT-${todayStr}-${(countTodayRcpt + 1).toString().padStart(4, '0')}`;
+
+        const chqPayment = await tx.customerPayment.create({
+          data: {
+            receiptNumber: rcptNum,
+            customerId,
+            amount: netTotal,
+            paymentMethod: 'CHEQUE',
+            chequeNumber: chequeNumber?.trim() || `CHQ-${newOrder.orderNumber}`,
+            bankName: bankName?.trim() || null,
+            chequeDate: chequeDate ? new Date(chequeDate) : new Date(),
+            chequeStatus: 'PENDING',
+            notes: `Rep Cheque Payment for ${newOrder.orderNumber}`,
+            collectedBy: lorry.driverName || 'Rep',
+            lorryId
+          } as any
+        });
+
+        await tx.billPaymentAllocation.create({
+          data: {
+            paymentId: chqPayment.id,
+            orderId: newOrder.id,
+            amount: netTotal,
+            notes: `Cheque #${chequeNumber?.trim() || 'N/A'} for bill ${newOrder.orderNumber}`
+          }
+        });
+      }
 
       // 4. Update Customer Outstanding Balance if credit/unpaid on current order
       const creditAmount = balanceAmount;
@@ -2455,11 +2501,12 @@ app.post('/api/customers/:id/payments', async (req: Request, res: Response) => {
           chequeNumber: chequeNumber?.trim() || null,
           bankName: bankName?.trim() || null,
           chequeDate: chequeDate ? new Date(chequeDate) : null,
+          chequeStatus: paymentMethod === 'CHEQUE' ? 'PENDING' : null,
           reference: reference?.trim() || null,
           notes: notes?.trim() || null,
           collectedBy: collectedBy?.trim() || null,
           lorryId: lorryId || null
-        },
+        } as any,
         include: {
           customer: true,
           lorry: true
@@ -2656,6 +2703,276 @@ app.delete('/api/customer-payments/:id', async (req: Request, res: Response) => 
 });
 
 // ========================================================
+// 6.1 CHEQUE MANAGEMENT (REP & OFFICE CHEQUES)
+// ========================================================
+
+// Get all cheques with search and status filtering
+app.get('/api/cheques', async (req: Request, res: Response) => {
+  try {
+    const { status, search } = req.query;
+    const where: any = {
+      paymentMethod: 'CHEQUE'
+    };
+
+    if (status && status !== 'ALL') {
+      where.chequeStatus = status;
+    }
+
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const q = search.trim();
+      where.OR = [
+        { chequeNumber: { contains: q } },
+        { bankName: { contains: q } },
+        { receiptNumber: { contains: q } },
+        { notes: { contains: q } },
+        { customer: { name: { contains: q } } },
+        { customer: { code: { contains: q } } }
+      ];
+    }
+
+    const cheques = await prisma.customerPayment.findMany({
+      where,
+      orderBy: [
+        { chequeDate: 'asc' },
+        { createdAt: 'desc' }
+      ],
+      include: {
+        customer: {
+          include: { route: true }
+        },
+        lorry: true,
+        allocations: {
+          include: {
+            order: true
+          }
+        }
+      }
+    });
+
+    res.json(cheques);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Cheque Management statistics & summary KPIs
+app.get('/api/cheques/stats', async (_req: Request, res: Response) => {
+  try {
+    const allCheques = await prisma.customerPayment.findMany({
+      where: { paymentMethod: 'CHEQUE' }
+    });
+
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+
+    let pendingCount = 0;
+    let pendingAmount = 0;
+    let maturedCount = 0;
+    let maturedAmount = 0;
+    let depositedCount = 0;
+    let depositedAmount = 0;
+    let clearedCount = 0;
+    let clearedAmount = 0;
+    let bouncedCount = 0;
+    let bouncedAmount = 0;
+    let totalCount = allCheques.length;
+    let totalAmount = 0;
+
+    for (const chq of allCheques) {
+      const amt = chq.amount || 0;
+      totalAmount += amt;
+      const status = (chq as any).chequeStatus || 'PENDING';
+
+      if (status === 'PENDING') {
+        pendingCount++;
+        pendingAmount += amt;
+        if (chq.chequeDate && new Date(chq.chequeDate) <= now) {
+          maturedCount++;
+          maturedAmount += amt;
+        }
+      } else if (status === 'DEPOSITED') {
+        depositedCount++;
+        depositedAmount += amt;
+      } else if (status === 'CLEARED') {
+        clearedCount++;
+        clearedAmount += amt;
+      } else if (status === 'BOUNCED') {
+        bouncedCount++;
+        bouncedAmount += amt;
+      }
+    }
+
+    res.json({
+      totalCount,
+      totalAmount,
+      pendingCount,
+      pendingAmount,
+      maturedCount,
+      maturedAmount,
+      depositedCount,
+      depositedAmount,
+      clearedCount,
+      clearedAmount,
+      bouncedCount,
+      bouncedAmount
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update Cheque status (PENDING, DEPOSITED, CLEARED, BOUNCED)
+app.put('/api/cheques/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, depositBank, depositDate, clearedDate, bounceReason, notes } = req.body;
+
+    if (!['PENDING', 'DEPOSITED', 'CLEARED', 'BOUNCED'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid cheque status.' });
+    }
+
+    const payment = await prisma.customerPayment.findUniqueOrThrow({
+      where: { id },
+      include: {
+        allocations: {
+          include: { order: true }
+        },
+        customer: true
+      }
+    });
+
+    const previousStatus = (payment as any).chequeStatus || 'PENDING';
+
+    await prisma.$transaction(async (tx) => {
+      const updateData: any = {
+        chequeStatus: status
+      };
+
+      if (notes !== undefined) updateData.notes = notes;
+
+      if (status === 'DEPOSITED') {
+        updateData.depositDate = depositDate ? new Date(depositDate) : new Date();
+        if (depositBank) updateData.depositBank = depositBank.trim();
+      } else if (status === 'CLEARED') {
+        updateData.clearedDate = clearedDate ? new Date(clearedDate) : new Date();
+      } else if (status === 'BOUNCED') {
+        updateData.bouncedDate = new Date();
+        updateData.bounceReason = bounceReason?.trim() || 'Payment bounced / returned by bank';
+      }
+
+      // If transition to BOUNCED: reverse order payments and restore customer outstanding credit
+      if (status === 'BOUNCED' && previousStatus !== 'BOUNCED') {
+        for (const alloc of payment.allocations) {
+          const order = alloc.order;
+          if (order) {
+            const newPaid = Math.max(0, (order.paidAmount || 0) - alloc.amount);
+            const newBal = Math.max(0, order.netTotal - newPaid);
+            const newStatus = newPaid <= 0 ? 'UNPAID' : (newBal <= 0 ? 'PAID' : 'PARTIAL');
+
+            await tx.order.update({
+              where: { id: order.id },
+              data: {
+                paidAmount: newPaid,
+                balanceAmount: newBal,
+                paymentStatus: newStatus
+              }
+            });
+          }
+        }
+
+        // Re-open debt on customer balance
+        await tx.customer.update({
+          where: { id: payment.customerId },
+          data: {
+            outstandingBalance: { increment: payment.amount }
+          }
+        });
+      }
+
+      // If recovering from a BOUNCED state back to PENDING/DEPOSITED/CLEARED
+      if (previousStatus === 'BOUNCED' && status !== 'BOUNCED') {
+        for (const alloc of payment.allocations) {
+          const order = alloc.order;
+          if (order) {
+            const newPaid = Math.min(order.netTotal, (order.paidAmount || 0) + alloc.amount);
+            const newBal = Math.max(0, order.netTotal - newPaid);
+            const newStatus = newBal <= 0 ? 'PAID' : 'PARTIAL';
+
+            await tx.order.update({
+              where: { id: order.id },
+              data: {
+                paidAmount: newPaid,
+                balanceAmount: newBal,
+                paymentStatus: newStatus
+              }
+            });
+          }
+        }
+
+        // Decrement customer outstanding balance as cheque is no longer bounced
+        await tx.customer.update({
+          where: { id: payment.customerId },
+          data: {
+            outstandingBalance: { decrement: payment.amount }
+          }
+        });
+      }
+
+      await tx.customerPayment.update({
+        where: { id },
+        data: updateData
+      });
+    });
+
+    const updated = await prisma.customerPayment.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        lorry: true,
+        allocations: {
+          include: { order: true }
+        }
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Update Cheque details (edit Cheque #, bank, maturity date, notes)
+app.put('/api/cheques/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { chequeNumber, bankName, chequeDate, notes, depositBank } = req.body;
+
+    const data: any = {};
+    if (chequeNumber !== undefined) data.chequeNumber = chequeNumber.trim();
+    if (bankName !== undefined) data.bankName = bankName ? bankName.trim() : null;
+    if (chequeDate !== undefined) data.chequeDate = chequeDate ? new Date(chequeDate) : null;
+    if (notes !== undefined) data.notes = notes ? notes.trim() : null;
+    if (depositBank !== undefined) data.depositBank = depositBank ? depositBank.trim() : null;
+
+    const updated = await prisma.customerPayment.update({
+      where: { id },
+      data,
+      include: {
+        customer: true,
+        lorry: true,
+        allocations: {
+          include: { order: true }
+        }
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ========================================================
 // 7. ORDERS & BILL HISTORY
 // ========================================================
 
@@ -2723,6 +3040,9 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     paymentStatus,
     paymentMethod,
     cashReceived,
+    chequeNumber,
+    bankName,
+    chequeDate,
     lorryId,
     settlePreviousBills
   } = req.body;
@@ -2823,7 +3143,10 @@ app.post('/api/orders', async (req: Request, res: Response) => {
 
       const netTotal = Math.max(0, subtotal - discountAmount);
 
-      const paidAmount = parseFloat(cashReceived !== undefined && cashReceived !== '' ? cashReceived : (paymentMethod === 'CASH' ? netTotal : 0));
+      const isCheque = paymentMethod === 'CHEQUE';
+      const paidAmount = isCheque
+        ? netTotal
+        : parseFloat(cashReceived !== undefined && cashReceived !== '' ? cashReceived : (paymentMethod === 'CASH' ? netTotal : 0));
       const calculatedPaymentStatus = paymentStatus || (paidAmount >= netTotal ? 'PAID' : (paidAmount > 0 ? 'PARTIAL' : 'UNPAID'));
       const balanceAmount = Math.max(0, netTotal - paidAmount);
 
@@ -2847,23 +3170,63 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           status: 'DELIVERED',
           paymentStatus: calculatedPaymentStatus,
           paymentMethod: paymentMethod || 'CASH',
+          chequeNumber: isCheque ? (chequeNumber?.trim() || null) : null,
+          bankName: isCheque ? (bankName?.trim() || null) : null,
+          chequeDate: isCheque && chequeDate ? new Date(chequeDate) : (isCheque ? new Date() : null),
           subtotal,
           discountAmount,
           taxAmount: 0.0,
           netTotal,
-          cashReceived: paidAmount,
+          cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
           balanceAmount,
           notes: notes?.trim() || (walkInName ? `Walk-in: ${walkInName}` : 'Warehouse Direct Counter Sale'),
           items: {
             create: orderItemsToCreate
           }
-        },
+        } as any,
         include: {
           customer: true,
           items: { include: { product: true } }
         }
       });
+
+      // If paid by Cheque, create CustomerPayment for Cheque Management
+      if (isCheque && netTotal > 0) {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+        const countTodayRcpt = await tx.customerPayment.count({
+          where: { createdAt: { gte: startOfToday, lte: endOfToday } }
+        });
+        const rcptNum = `RCPT-${todayStr}-${(countTodayRcpt + 1).toString().padStart(4, '0')}`;
+
+        const chqPayment = await tx.customerPayment.create({
+          data: {
+            receiptNumber: rcptNum,
+            customerId: customer.id,
+            amount: netTotal,
+            paymentMethod: 'CHEQUE',
+            chequeNumber: chequeNumber?.trim() || `CHQ-${createdOrder.orderNumber}`,
+            bankName: bankName?.trim() || null,
+            chequeDate: chequeDate ? new Date(chequeDate) : new Date(),
+            chequeStatus: 'PENDING',
+            notes: `Counter Cheque Payment for ${createdOrder.orderNumber}`,
+            collectedBy: 'Warehouse Counter',
+            lorryId: null
+          } as any
+        });
+
+        await tx.billPaymentAllocation.create({
+          data: {
+            paymentId: chqPayment.id,
+            orderId: createdOrder.id,
+            amount: netTotal,
+            notes: `Counter bill payment via Cheque #${chequeNumber?.trim() || 'N/A'}`
+          }
+        });
+      }
 
       // Record Stock Movement Outbound
       for (const item of orderItemsToCreate) {
