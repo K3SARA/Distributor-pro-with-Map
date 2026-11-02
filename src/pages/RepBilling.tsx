@@ -28,6 +28,7 @@ import {
 import { Customer, Product, Lorry, Order, User, RepTargetProgress } from '../types';
 import { CustomerService, LorryService, ProductService, OrderService, AuthService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
+import { CustomerModal } from '../components/CustomerModal';
 
 interface CartItem {
   productId: string;
@@ -94,6 +95,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [checkoutSuccessOrder, setCheckoutSuccessOrder] = useState<Order | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Add Customer Modal State
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState<boolean>(false);
 
   // Targets Modal State
   const [showTargetModal, setShowTargetModal] = useState<boolean>(false);
@@ -501,17 +505,61 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               </div>
             ) : null}
 
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-              <input
-                type="text"
-                value={customerSearch}
-                onChange={e => setCustomerSearch(e.target.value)}
-                placeholder="Search customer name or phone..."
-                className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-              />
+            {/* Search Input & Quick (+) Add Customer Button */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  value={customerSearch}
+                  onChange={e => setCustomerSearch(e.target.value)}
+                  placeholder="Search customer name or phone..."
+                  className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                />
+                {customerSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomerSearch('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs font-bold w-4 h-4 flex items-center justify-center cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAddCustomerModal(true)}
+                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition shrink-0 cursor-pointer"
+                title="Add New Customer to Database"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+                <span className="hidden sm:inline">Add Customer</span>
+              </button>
             </div>
+
+            {/* Empty State when no customer matches */}
+            {filteredCustomers.length === 0 && (
+              <div className="p-6 text-center bg-white rounded-2xl border border-dashed border-slate-200 space-y-2.5 my-2 shadow-2xs">
+                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-800">No customer found</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {customerSearch ? `No customer matches "${customerSearch}"` : 'Your customer list is empty'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomerModal(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Register New Customer</span>
+                </button>
+              </div>
+            )}
 
             {/* Compact Customer List */}
             <div className="space-y-2 max-h-[58vh] overflow-y-auto pr-0.5">
@@ -1200,6 +1248,27 @@ export const RepBilling: React.FC<RepBillingProps> = ({
           </div>
         </div>
       )}
+
+      {/* QUICK ADD CUSTOMER MODAL FOR REP */}
+      <CustomerModal
+        customer={null}
+        isOpen={showAddCustomerModal}
+        onClose={() => setShowAddCustomerModal(false)}
+        defaultRouteId={selectedLorry?.routeId || user?.lorry?.routeId || undefined}
+        onSaved={async (newCust) => {
+          try {
+            const updatedList = await CustomerService.getAll();
+            setCustomers(updatedList);
+            if (newCust?.id) {
+              setSelectedCustomerId(newCust.id);
+              setCustomerSearch('');
+            }
+            loadTargets();
+          } catch (e) {
+            console.error('Failed to reload customers', e);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -8,14 +8,16 @@ interface CustomerModalProps {
   customer: Customer | null;
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (customer?: Customer) => void;
+  defaultRouteId?: string;
 }
 
 export const CustomerModal: React.FC<CustomerModalProps> = ({
   customer,
   isOpen,
   onClose,
-  onSaved
+  onSaved,
+  defaultRouteId
 }) => {
   const { currencyConfig } = useCurrency();
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -25,7 +27,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
     phone: '',
     deliveryAddress: '',
     city: 'Local',
-    routeId: '',
+    routeId: defaultRouteId || '',
     pricingTier: 'STANDARD',
     discountPercentage: '0',
     creditLimit: '50000'
@@ -47,7 +49,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
         phone: customer.phone,
         deliveryAddress: customer.deliveryAddress,
         city: customer.city,
-        routeId: customer.routeId || '',
+        routeId: customer.routeId || defaultRouteId || '',
         pricingTier: customer.pricingTier,
         discountPercentage: customer.discountPercentage.toString(),
         creditLimit: customer.creditLimit.toString()
@@ -59,14 +61,14 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
         phone: '',
         deliveryAddress: '',
         city: 'Local',
-        routeId: '',
+        routeId: defaultRouteId || '',
         pricingTier: 'STANDARD',
         discountPercentage: '0',
         creditLimit: '50000'
       });
     }
     setError(null);
-  }, [customer, isOpen]);
+  }, [customer, isOpen, defaultRouteId]);
 
   if (!isOpen) return null;
 
@@ -81,8 +83,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
     setError(null);
 
     try {
+      let savedCust: Customer;
       if (customer) {
-        await CustomerService.update(customer.id, {
+        savedCust = await CustomerService.update(customer.id, {
           name: formData.name,
           companyName: formData.companyName || null,
           phone: formData.phone,
@@ -94,7 +97,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           creditLimit: parseFloat(formData.creditLimit || '50000')
         });
       } else {
-        await CustomerService.create({
+        savedCust = await CustomerService.create({
           name: formData.name,
           companyName: formData.companyName || null,
           phone: formData.phone,
@@ -106,7 +109,7 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           creditLimit: parseFloat(formData.creditLimit || '50000')
         });
       }
-      onSaved();
+      onSaved(savedCust);
       onClose();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save customer');

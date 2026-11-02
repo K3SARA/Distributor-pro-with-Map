@@ -23,6 +23,7 @@ import {
 import { Lorry, Customer, Order, Product } from '../types';
 import { LorryService, CustomerService, OrderService, ProductService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
+import { CustomerModal } from '../components/CustomerModal';
 
 interface BillItemRow {
   productId: string;
@@ -66,6 +67,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState<boolean>(false);
 
   // Draft persistence in localStorage
   const DRAFT_KEY = 'distributor_bill_entry_draft';
@@ -623,9 +625,20 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  {billMode === 'LORRY' ? 'Retail Customer / Outlet *' : 'Customer Account *'}
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                    {billMode === 'LORRY' ? 'Retail Customer / Outlet *' : 'Customer Account *'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCustomerModal(true)}
+                    className="text-[11px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer transition"
+                    title="Register New Customer"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>New Customer</span>
+                  </button>
+                </div>
                 <select
                   value={selectedCustomerId}
                   onChange={(e) => setSelectedCustomerId(e.target.value)}
@@ -1166,6 +1179,25 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
           </table>
         </div>
       </div>
+
+      {/* QUICK ADD CUSTOMER MODAL */}
+      <CustomerModal
+        customer={null}
+        isOpen={showAddCustomerModal}
+        onClose={() => setShowAddCustomerModal(false)}
+        defaultRouteId={selectedLorry?.routeId || undefined}
+        onSaved={async (newCust) => {
+          try {
+            const updated = await CustomerService.getAll();
+            setCustomers(updated);
+            if (newCust?.id) {
+              setSelectedCustomerId(newCust.id);
+            }
+          } catch (e) {
+            console.error('Failed to reload customers', e);
+          }
+        }}
+      />
     </div>
   );
 };
