@@ -1,0 +1,12 @@
+{
+  "companyName": "Sunbakers & confectionary",
+  "tagline": "Fresh Bakery & Confectionary Distribution",
+  "phone": "+94 77 254 9414",
+  "email": "sunbakers@gmail.com",
+  "address": "239,kurukutthala ,kadugannawa",
+  "registrationNumber": "",
+  "invoiceFooterNote": "Goods received in fresh & satisfactory condition. Thank you for your business!",
+  "defaultCurrency": "LKR",
+  "defaultCreditLimit": 50000,
+  "lowStockThreshold": 10
+}

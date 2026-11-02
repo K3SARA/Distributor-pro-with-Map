@@ -195,20 +195,27 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                80MM THERMAL RECEIPT LAYOUT (OPTIMIZED FOR BLUETOOTH PRINTERS)
                ======================================================== */
             <div className="receipt-80mm max-w-[320px] w-full mx-auto bg-white p-3.5 sm:p-4 shadow-sm border border-slate-200 rounded-xl text-black font-mono text-[11px] leading-tight select-text">
-              {/* Receipt Header */}
-              <div className="text-center space-y-0.5 pb-2">
-                <h2 className="text-sm font-black tracking-wide uppercase text-black">
-                  {companySettings?.companyName || 'SAMANTHA DISTRIBUTORS'}
+              {/* Receipt Logo & Header */}
+              <div className="text-center space-y-1 pb-2">
+                {/* Sunbakers & Confectionary Logo */}
+                <div className="flex justify-center mb-1.5">
+                  <img
+                    src="/sun-bakers-logo.png"
+                    alt="Sunbakers & confectionary"
+                    className="w-16 h-16 sm:w-20 sm:h-20 object-contain mx-auto rounded-full border border-slate-200/60 shadow-2xs print:border-none"
+                  />
+                </div>
+
+                <h2 className="text-sm sm:text-base font-black tracking-wider uppercase text-black leading-tight">
+                  {companySettings?.companyName || 'Sunbakers & confectionary'}
                 </h2>
-                {companySettings?.tagline && (
-                  <p className="text-[10px] text-black uppercase font-semibold">{companySettings.tagline}</p>
-                )}
-                {companySettings?.address && (
-                  <p className="text-[10px] text-black">{companySettings.address}</p>
-                )}
-                {companySettings?.phone && (
-                  <p className="text-[10px] text-black font-bold">Tel: {companySettings.phone}</p>
-                )}
+                
+                <p className="text-[10px] sm:text-[10.5px] text-black font-medium leading-tight">
+                  {companySettings?.address || '239,kurukutthala ,kadugannawa'}
+                </p>
+                <p className="text-[10px] sm:text-[10.5px] text-black font-bold">
+                  Tel: {companySettings?.phone || '+94 77 254 9414'}
+                </p>
                 {companySettings?.registrationNumber && (
                   <p className="text-[9px] text-black">Reg/VAT: {companySettings.registrationNumber}</p>
                 )}
@@ -407,25 +414,35 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   </p>
                 </div>
 
-                <div className="text-left sm:text-right">
-                  <h3 className="font-bold text-sm text-slate-900">
-                    {companySettings?.companyName || 'Samantha Distributors'}
-                  </h3>
-                  {companySettings?.address && (
-                    <p className="text-xs text-slate-500">{companySettings.address}</p>
-                  )}
-                  {companySettings?.phone && (
-                    <p className="text-xs text-slate-500 font-mono">Tel: {companySettings.phone}</p>
-                  )}
+                <div className="text-left sm:text-right space-y-2">
+                  <div className="flex items-center gap-3 sm:justify-end">
+                    <img
+                      src="/sun-bakers-logo.png"
+                      alt="Sunbakers & confectionary"
+                      className="w-12 h-12 object-contain rounded-full border border-slate-100 shadow-2xs shrink-0"
+                    />
+                    <div>
+                      <h3 className="font-bold text-sm text-slate-900">
+                        {companySettings?.companyName || 'Sunbakers & confectionary'}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {companySettings?.address || '239,kurukutthala ,kadugannawa'}
+                      </p>
+                      <p className="text-xs text-slate-500 font-mono">
+                        Tel: {companySettings?.phone || '+94 77 254 9414'}
+                      </p>
+                    </div>
+                  </div>
+
                   {order.lorry ? (
-                    <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+                    <div className="text-xs text-slate-600 space-y-0.5">
                       <p className="font-semibold text-slate-900">
                         Lorry: {order.lorry.vehicleNumber} ({order.lorry.driverName})
                       </p>
                       <p className="text-blue-600 font-medium">Route: {order.route?.name || order.lorry.route?.name || 'Local Route'}</p>
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-500 mt-1">Warehouse Central Counter</p>
+                    <p className="text-xs text-slate-500">Warehouse Central Counter</p>
                   )}
                 </div>
               </div>

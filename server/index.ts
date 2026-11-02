@@ -4564,13 +4564,13 @@ app.get('/api/manufacturing/summary', async (req: Request, res: Response) => {
 const SETTINGS_FILE = path.join(__dirname, '../settings.json');
 
 const defaultSettings = {
-  companyName: 'Distributor Pro Lanka (Pvt) Ltd',
-  tagline: 'Authorized Wholesale FMCG Distribution & Fleet Console',
-  phone: '+94 11 234 5678 / +94 77 123 4567',
-  email: 'distribution@example.com',
-  address: 'No. 88, Commercial Zone, Colombo, Sri Lanka',
-  registrationNumber: 'PV-84920/2022',
-  invoiceFooterNote: 'Goods once delivered and acknowledged on paper slip cannot be returned without formal warehouse return authorization.',
+  companyName: 'Sunbakers & confectionary',
+  tagline: 'Fresh Bakery & Confectionary Distribution',
+  phone: '+94 77 254 9414',
+  email: 'sunbakers@gmail.com',
+  address: '239,kurukutthala ,kadugannawa',
+  registrationNumber: '',
+  invoiceFooterNote: 'Goods received in fresh & satisfactory condition. Thank you for your business!',
   defaultCurrency: 'LKR',
   defaultCreditLimit: 50000,
   lowStockThreshold: 10

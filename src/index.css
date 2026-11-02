@@ -114,5 +114,16 @@
     border-top: 2px solid #000000 !important;
     margin: 4px 0 !important;
   }
+
+  /* Thermal Receipt Logo Optimization */
+  .receipt-80mm img {
+    filter: grayscale(100%) contrast(140%) !important;
+    -webkit-filter: grayscale(100%) contrast(140%) !important;
+    max-width: 68px !important;
+    max-height: 68px !important;
+    display: block !important;
+    margin: 0 auto 4px auto !important;
+  }
 }
+
 

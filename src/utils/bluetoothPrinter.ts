@@ -106,19 +106,12 @@ export function build80mmEscPosReceipt(order: Order, settings?: SystemSettings |
   addBytes(COMMANDS.ALIGN_CENTER);
   addBytes(COMMANDS.DOUBLE_SIZE);
   addBytes(COMMANDS.BOLD_ON);
-  addLine(settings?.companyName || 'SAMANTHA DISTRIBUTORS');
+  addLine(settings?.companyName || 'Sunbakers & confectionary');
   addBytes(COMMANDS.NORMAL_SIZE);
   addBytes(COMMANDS.BOLD_OFF);
 
-  if (settings?.tagline) {
-    addLine(settings.tagline);
-  }
-  if (settings?.address) {
-    addLine(settings.address);
-  }
-  if (settings?.phone) {
-    addLine(`Tel: ${settings.phone}`);
-  }
+  addLine(settings?.address || '239,kurukutthala ,kadugannawa');
+  addLine(`Tel: ${settings?.phone || '+94 77 254 9414'}`);
   if (settings?.registrationNumber) {
     addLine(`Reg/VAT: ${settings.registrationNumber}`);
   }
