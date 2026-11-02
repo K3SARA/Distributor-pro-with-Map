@@ -246,44 +246,61 @@ app.get('/api/reps/my-targets', async (req: Request, res: Response) => {
       });
     }
 
+    // Fallback if userId not provided or not found: find active REP user
+    if (!targetUser) {
+      targetUser = await prisma.user.findFirst({
+        where: { role: 'REP', status: 'ACTIVE' },
+        include: { lorry: { include: { route: true } } }
+      });
+    }
+
+    // Final fallback to any user
+    if (!targetUser) {
+      targetUser = await prisma.user.findFirst({
+        include: { lorry: { include: { route: true } } }
+      });
+    }
+
     const effectiveLorryId = (lorryId as string) || targetUser?.lorryId || null;
 
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 
-    let achievedToday = 0;
-    let achievedMonth = 0;
-    let todayBillsCount = 0;
-    let monthBillsCount = 0;
+    const orderWhereToday: any = {
+      status: { not: 'CANCELLED' },
+      createdAt: { gte: startOfDay }
+    };
+
+    const orderWhereMonth: any = {
+      status: { not: 'CANCELLED' },
+      createdAt: { gte: startOfMonth }
+    };
 
     if (effectiveLorryId) {
-      const todayAgg = await prisma.order.aggregate({
-        _sum: { netTotal: true },
-        _count: { id: true },
-        where: {
-          lorryId: effectiveLorryId,
-          createdAt: { gte: startOfDay }
-        }
-      });
-      achievedToday = todayAgg._sum.netTotal || 0;
-      todayBillsCount = todayAgg._count.id || 0;
-
-      const monthAgg = await prisma.order.aggregate({
-        _sum: { netTotal: true },
-        _count: { id: true },
-        where: {
-          lorryId: effectiveLorryId,
-          createdAt: { gte: startOfMonth }
-        }
-      });
-      achievedMonth = monthAgg._sum.netTotal || 0;
-      monthBillsCount = monthAgg._count.id || 0;
+      orderWhereToday.lorryId = effectiveLorryId;
+      orderWhereMonth.lorryId = effectiveLorryId;
     }
 
-    const dailyTarget = targetUser?.dailyTarget || 0;
-    const monthlyTarget = targetUser?.monthlyTarget || 0;
-    const targetNewClients = targetUser?.targetNewClients || 0;
+    const todayAgg = await prisma.order.aggregate({
+      _sum: { netTotal: true },
+      _count: { id: true },
+      where: orderWhereToday
+    });
+    const achievedToday = todayAgg._sum.netTotal || 0;
+    const todayBillsCount = todayAgg._count.id || 0;
+
+    const monthAgg = await prisma.order.aggregate({
+      _sum: { netTotal: true },
+      _count: { id: true },
+      where: orderWhereMonth
+    });
+    const achievedMonth = monthAgg._sum.netTotal || 0;
+    const monthBillsCount = monthAgg._count.id || 0;
+
+    const dailyTarget = targetUser?.dailyTarget || 20000;
+    const monthlyTarget = targetUser?.monthlyTarget || 500000;
+    const targetNewClients = targetUser?.targetNewClients || 5;
 
     const dailyPercentage = dailyTarget > 0 ? Math.round((achievedToday / dailyTarget) * 100) : 0;
     const monthlyPercentage = monthlyTarget > 0 ? Math.round((achievedMonth / monthlyTarget) * 100) : 0;
@@ -3165,8 +3182,8 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           orderNumber,
           paperBillNumber: paperBillNumber?.trim() || null,
           customerId: customer.id,
-          lorryId: null, // Direct warehouse counter sale
-          routeId: customer.routeId || null,
+          lorryId: req.body.lorryId || null,
+          routeId: req.body.routeId || customer.routeId || null,
           status: 'DELIVERED',
           paymentStatus: calculatedPaymentStatus,
           paymentMethod: paymentMethod || 'CASH',

@@ -153,6 +153,7 @@ export const AppContent: React.FC = () => {
 
           <div className={currentTab === 'rep-billing' ? '' : 'hidden'}>
             <RepBilling
+              user={currentUser}
               onViewInvoice={(order) => setActiveInvoiceOrder(order)}
               onExitToMenu={() => setCurrentTab('dashboard')}
             />

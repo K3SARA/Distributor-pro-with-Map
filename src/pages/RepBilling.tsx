@@ -140,9 +140,18 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const loadTargets = async (lorryIdToUse?: string) => {
     try {
       setLoadingTargets(true);
+      const userFromStorage = (() => {
+        try {
+          const s = localStorage.getItem('distributor_auth_user');
+          return s ? JSON.parse(s) : null;
+        } catch {
+          return null;
+        }
+      })();
+      const activeUser = user || userFromStorage;
       const data = await AuthService.getMyTargets({
-        userId: user?.id,
-        lorryId: lorryIdToUse || selectedLorryId || initialLorryId
+        userId: activeUser?.id,
+        lorryId: lorryIdToUse || selectedLorryId || initialLorryId || activeUser?.lorryId
       });
       setTargetProgress(data);
     } catch (err) {
@@ -460,8 +469,10 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       }
 
       setCheckoutSuccessOrder(createdOrder);
-      loadTargets();
-      loadFinishedBills();
+      await Promise.all([
+        loadTargets(selectedLorryId || undefined),
+        loadFinishedBills(selectedLorryId || undefined)
+      ]);
     } catch (err: any) {
       setErrorMessage(err.response?.data?.error || err.message || 'Failed to complete bill.');
     } finally {
@@ -483,6 +494,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     setCurrentStep(1);
     setCustomerSearch('');
     setItemSearch('');
+    loadTargets(selectedLorryId || undefined);
+    loadFinishedBills(selectedLorryId || undefined);
   };
 
   const stepLabels = ['Customer', 'Cart', 'Brand', 'Items', 'Checkout'];
@@ -527,11 +540,17 @@ export const RepBilling: React.FC<RepBillingProps> = ({
           >
             <Target className="w-3.5 h-3.5 text-indigo-600" />
             <span className="text-[11px] font-bold">Target</span>
-            {targetProgress && (targetProgress.monthlyPercentage > 0 || targetProgress.dailyPercentage > 0) ? (
-              <span className="bg-indigo-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5">
-                {targetProgress.monthlyPercentage}%
+            {targetProgress && (
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5 ${
+                targetProgress.dailyPercentage >= 100
+                  ? 'bg-emerald-600 text-white'
+                  : targetProgress.dailyPercentage > 0
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-200 text-slate-700'
+              }`}>
+                {targetProgress.dailyPercentage}%
               </span>
-            ) : null}
+            )}
           </button>
 
           {/* Finished Bills History Button */}
