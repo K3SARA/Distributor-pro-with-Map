@@ -55,9 +55,19 @@
 
 /* Print Styles */
 @media print {
+  @page {
+    /* Standard 80mm thermal receipt roll size */
+    size: 80mm auto;
+    margin: 0mm 2mm 5mm 2mm;
+  }
+
   body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   aside,
@@ -71,5 +81,38 @@
     padding: 0 !important;
     max-height: none !important;
     overflow: visible !important;
+    width: 100% !important;
+    box-shadow: none !important;
+  }
+
+  /* 80mm Thermal Receipt Container */
+  .receipt-80mm {
+    width: 72mm !important;
+    max-width: 72mm !important;
+    margin: 0 auto !important;
+    padding: 2mm 0 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+  }
+
+  .receipt-80mm * {
+    color: #000000 !important;
+    border-color: #000000 !important;
+    box-shadow: none !important;
+  }
+
+  /* Force solid black lines on thermal paper */
+  .receipt-divider {
+    border-top: 1px dashed #000000 !important;
+    margin: 4px 0 !important;
+  }
+
+  .receipt-divider-double {
+    border-top: 2px solid #000000 !important;
+    margin: 4px 0 !important;
   }
 }
+

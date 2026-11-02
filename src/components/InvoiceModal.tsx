@@ -1,17 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, Truck, Receipt } from 'lucide-react';
+import {
+  X,
+  Printer,
+  Bluetooth,
+  Receipt,
+  FileText,
+  Check,
+  AlertCircle,
+  Loader2,
+  Smartphone
+} from 'lucide-react';
 import { Order, SystemSettings } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { SettingsService } from '../services/api';
+import {
+  printToBluetoothThermalPrinter,
+  isWebBluetoothSupported
+} from '../utils/bluetoothPrinter';
 
 interface InvoiceModalProps {
   order: Order | null;
   onClose: () => void;
+  defaultFormat?: '80mm' | 'a4';
 }
 
-export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, onClose }) => {
+export const InvoiceModal: React.FC<InvoiceModalProps> = ({
+  order,
+  onClose,
+  defaultFormat = '80mm'
+}) => {
   const { formatMoney } = useCurrency();
   const [companySettings, setCompanySettings] = useState<SystemSettings | null>(null);
+  const [format, setFormat] = useState<'80mm' | 'a4'>(defaultFormat);
+  const [btStatus, setBtStatus] = useState<string | null>(null);
+  const [btLoading, setBtLoading] = useState<boolean>(false);
+  const [btSuccess, setBtSuccess] = useState<boolean>(false);
 
   useEffect(() => {
     if (order) {
@@ -23,220 +46,523 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ order, onClose }) =>
 
   if (!order) return null;
 
-  const handlePrint = () => {
+  const handleSystemPrint = () => {
     window.print();
   };
 
+  const handleBluetoothPrint = async () => {
+    if (!order) return;
+    setBtLoading(true);
+    setBtStatus('Initializing Bluetooth...');
+    setBtSuccess(false);
+
+    try {
+      const result = await printToBluetoothThermalPrinter(
+        order,
+        companySettings,
+        (status) => setBtStatus(status)
+      );
+
+      if (result.success) {
+        setBtSuccess(true);
+        setTimeout(() => {
+          setBtStatus(null);
+          setBtLoading(false);
+          setBtSuccess(false);
+        }, 3500);
+      } else {
+        setBtLoading(false);
+        // If device was not selected or not supported, keep message for 4s
+        setTimeout(() => setBtStatus(null), 4000);
+      }
+    } catch (err: any) {
+      setBtLoading(false);
+      setBtStatus(err?.message || 'Bluetooth printing failed');
+      setTimeout(() => setBtStatus(null), 4000);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[94vh]">
-        {/* Modal Controls */}
-        <div className="px-4 sm:px-8 py-3 sm:py-4 border-b border-slate-100 flex items-center justify-between gap-2 bg-slate-50/50 print:hidden shrink-0">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Bill Slip
-            </span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700">
-              {order.status}
-            </span>
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+      <div className={`bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full overflow-hidden flex flex-col max-h-[95vh] transition-all duration-200 ${
+        format === '80mm' ? 'max-w-md' : 'max-w-2xl'
+      }`}>
+        {/* Modal Controls Toolbar */}
+        <div className="px-3 sm:px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50/80 print:hidden shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Format Switcher */}
+            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setFormat('80mm')}
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition ${
+                  format === '80mm'
+                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="80mm Thermal Receipt (Mobile / Bluetooth)"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-blue-600" />
+                <span>80mm Thermal</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFormat('a4')}
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition ${
+                  format === 'a4'
+                    ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Full A4 / Slip"
+              >
+                <FileText className="w-3.5 h-3.5 text-slate-500" />
+                <span>A4 Slip</span>
+              </button>
+            </div>
+
             {order.paperBillNumber && (
-              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-200 text-slate-700">
+              <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 hidden sm:inline">
                 Slip: {order.paperBillNumber}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Direct Bluetooth Print button */}
             <button
-              onClick={handlePrint}
-              className="px-3 sm:px-4 py-1.5 sm:py-2 bg-[#0071E3] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+              type="button"
+              onClick={handleBluetoothPrint}
+              disabled={btLoading}
+              className="px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition disabled:opacity-60 cursor-pointer"
+              title="Connect & Print directly to any Bluetooth thermal printer (ESC/POS)"
             >
-              <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print Bill</span>
+              {btLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : btSuccess ? (
+                <Check className="w-3.5 h-3.5 text-emerald-300" />
+              ) : (
+                <Bluetooth className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {btLoading ? 'Printing...' : btSuccess ? 'Printed!' : 'Bluetooth Print'}
+              </span>
             </button>
+
+            {/* Standard System Print Button */}
             <button
+              type="button"
+              onClick={handleSystemPrint}
+              className="px-3 sm:px-3.5 py-1.5 bg-[#0071E3] hover:bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+              title="Print via System Print Spooler (Supports all Bluetooth / USB printers)"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print {format === '80mm' ? '80mm' : 'Bill'}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition"
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
+        {/* Live Bluetooth Status Banner (if active) */}
+        {btStatus && (
+          <div className={`px-4 py-2 text-xs font-medium flex items-center gap-2 border-b print:hidden transition-all ${
+            btSuccess
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : btStatus.includes('failed') || btStatus.includes('not supported') || btStatus.includes('cancelled')
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-blue-50 text-blue-800 border-blue-200 animate-pulse'
+          }`}>
+            {btSuccess ? (
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <Bluetooth className="w-4 h-4 text-indigo-600 shrink-0" />
+            )}
+            <span className="truncate">{btStatus}</span>
+          </div>
+        )}
+
         {/* Printable Delivery Note & Invoice Body */}
-        <div id="printable-invoice" className="p-4 sm:p-10 overflow-y-auto space-y-4 sm:space-y-6 text-slate-900 bg-white">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-3 border-b border-slate-200 pb-4 sm:pb-6">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-                DISTRIBUTION SALES BILL
-              </h2>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono text-slate-500 mt-1">
-                <span>System Ref: {order.orderNumber}</span>
-                {order.paperBillNumber && (
-                  <span className="text-blue-600 font-bold">Paper Bill #: {order.paperBillNumber}</span>
+        <div id="printable-invoice" className="overflow-y-auto bg-slate-100/50 p-2 sm:p-4">
+          {format === '80mm' ? (
+            /* ========================================================
+               80MM THERMAL RECEIPT LAYOUT (OPTIMIZED FOR BLUETOOTH PRINTERS)
+               ======================================================== */
+            <div className="receipt-80mm max-w-[320px] w-full mx-auto bg-white p-3.5 sm:p-4 shadow-sm border border-slate-200 rounded-xl text-black font-mono text-[11px] leading-tight select-text">
+              {/* Receipt Header */}
+              <div className="text-center space-y-0.5 pb-2">
+                <h2 className="text-sm font-black tracking-wide uppercase text-black">
+                  {companySettings?.companyName || 'SAMANTHA DISTRIBUTORS'}
+                </h2>
+                {companySettings?.tagline && (
+                  <p className="text-[10px] text-black uppercase font-semibold">{companySettings.tagline}</p>
+                )}
+                {companySettings?.address && (
+                  <p className="text-[10px] text-black">{companySettings.address}</p>
+                )}
+                {companySettings?.phone && (
+                  <p className="text-[10px] text-black font-bold">Tel: {companySettings.phone}</p>
+                )}
+                {companySettings?.registrationNumber && (
+                  <p className="text-[9px] text-black">Reg/VAT: {companySettings.registrationNumber}</p>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-0.5 sm:mt-1">
-                Date: {new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
 
-            <div className="text-left sm:text-right">
-              <h3 className="font-bold text-sm sm:text-base text-slate-900">
-                {companySettings?.companyName || 'Distributor Logistics Depot'}
-              </h3>
-              {companySettings?.address && (
-                <p className="text-xs text-slate-500">{companySettings.address}</p>
-              )}
-              {companySettings?.phone && (
-                <p className="text-xs text-slate-500 font-mono">Tel: {companySettings.phone}</p>
-              )}
-              {order.lorry ? (
-                <div className="text-xs text-slate-600 mt-1 space-y-0.5">
-                  <p className="font-semibold text-slate-900">
-                    Lorry: {order.lorry.vehicleNumber}
-                  </p>
-                  <p>Driver: {order.lorry.driverName}</p>
-                  <p className="text-blue-600 font-medium">Route: {order.route?.name || order.lorry.route?.name || 'Local Route'}</p>
+              {/* Header Double Divider */}
+              <div className="border-t-2 border-black my-1.5" />
+              <div className="text-center font-bold text-[11px] py-0.5 tracking-wider">
+                *** SALES BILL / DELIVERY SLIP ***
+              </div>
+              <div className="border-t border-black border-dashed my-1.5" />
+
+              {/* Bill Details */}
+              <div className="space-y-0.5 text-[10px]">
+                <div className="flex justify-between">
+                  <span>Date: {new Date(order.createdAt).toLocaleDateString()}</span>
+                  <span>Time: {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-              ) : (
-                <p className="text-xs text-slate-500 mt-1">Warehouse Central Counter</p>
-              )}
-            </div>
-          </div>
-
-          {/* Client & Destination Details */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 bg-slate-50/70 p-4 sm:p-5 rounded-2xl border border-slate-100 text-sm">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Retail Outlet
-              </span>
-              <p className="font-bold text-slate-900">{order.customer.name}</p>
-              {order.customer.companyName && (
-                <p className="text-xs text-slate-600">{order.customer.companyName}</p>
-              )}
-              <p className="text-xs text-slate-600 mt-1">{order.customer.deliveryAddress}</p>
-              <p className="text-xs text-slate-600">{order.customer.city}</p>
-              <p className="text-xs text-slate-600 mt-1 font-mono">{order.customer.phone}</p>
-            </div>
-
-            <div className="text-left sm:text-right">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Account & Payment
-              </span>
-              <p className="text-xs text-slate-600">
-                Client Code: <span className="font-mono font-semibold text-slate-900">{order.customer.code}</span>
-              </p>
-              <p className="text-xs text-slate-600">
-                Payment Mode: <span className="font-semibold text-slate-900">{order.paymentMethod || 'CASH'}</span>
-              </p>
-              <p className="text-xs text-slate-600">
-                Status: <span className="font-semibold text-slate-900">{order.paymentStatus}</span>
-              </p>
-              {order.notes && (
-                <div className="mt-2 text-xs text-slate-600 bg-white p-2 rounded-lg text-left border border-slate-200">
-                  <strong>Notes:</strong> {order.notes}
+                <div className="flex justify-between font-bold">
+                  <span>Bill #: {order.paperBillNumber || order.orderNumber}</span>
+                  <span>Ref: {order.orderNumber}</span>
                 </div>
-              )}
-            </div>
-          </div>
+                {order.lorry && (
+                  <div>
+                    <span className="font-semibold">Lorry:</span> {order.lorry.vehicleNumber} ({order.lorry.driverName})
+                  </div>
+                )}
+                {(order.route?.name || order.lorry?.route?.name) && (
+                  <div>
+                    <span className="font-semibold">Route:</span> {order.route?.name || order.lorry?.route?.name}
+                  </div>
+                )}
+              </div>
 
-          {/* Items Table */}
-          <div className="border border-slate-200 rounded-2xl overflow-x-auto -mx-1 sm:mx-0">
-            <table className="w-full text-left border-collapse text-xs sm:text-sm min-w-[480px]">
-              <thead className="bg-slate-100 text-slate-500 text-[10px] sm:text-xs font-semibold uppercase tracking-wider">
-                <tr>
-                  <th className="p-2.5 sm:p-3 pl-3 sm:pl-4">Item & SKU</th>
-                  <th className="p-2.5 sm:p-3 text-center">Unit</th>
-                  <th className="p-2.5 sm:p-3 text-center">Qty</th>
-                  <th className="p-2.5 sm:p-3 text-right">Unit Price</th>
-                  <th className="p-2.5 sm:p-3 pr-3 sm:pr-4 text-right">Line Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+              {/* Customer Box */}
+              <div className="border-t border-black border-dashed my-1.5" />
+              <div className="text-[10px] space-y-0.5">
+                <div className="font-bold">
+                  Customer: {order.customer.name} [{order.customer.code}]
+                </div>
+                {order.customer.companyName && (
+                  <div>Shop: {order.customer.companyName}</div>
+                )}
+                {(order.customer.deliveryAddress || order.customer.city) && (
+                  <div>Addr: {order.customer.deliveryAddress || order.customer.city}</div>
+                )}
+                {order.customer.phone && (
+                  <div>Tel: {order.customer.phone}</div>
+                )}
+              </div>
+
+              {/* Items Table (2-line 80mm format: Item name line 1, Qty x Price & Total line 2) */}
+              <div className="border-t-2 border-black my-1.5" />
+              <div className="flex justify-between font-bold text-[10px] pb-1">
+                <span>ITEM DESCRIPTION</span>
+                <span>TOTAL</span>
+              </div>
+              <div className="border-t border-black border-dashed mb-1.5" />
+
+              <div className="space-y-1.5 text-[10px]">
                 {order.items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="p-2.5 sm:p-3 pl-3 sm:pl-4">
-                      <p className="font-medium text-slate-900">{item.product.name}</p>
-                      <span className="text-[10px] sm:text-[11px] font-mono text-slate-400">{item.product.sku}</span>
-                    </td>
-                    <td className="p-2.5 sm:p-3 text-center text-xs text-slate-500">{item.product.unit}</td>
-                    <td className="p-2.5 sm:p-3 text-center font-bold text-slate-900">
-                      {item.quantity}
-                      {item.freeQuantity > 0 && (
-                        <span className="block text-[10px] font-semibold text-emerald-600">
-                          +{item.freeQuantity} Free
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-2.5 sm:p-3 text-right font-mono text-slate-600">{formatMoney(item.unitPrice)}</td>
-                    <td className="p-2.5 sm:p-3 pr-3 sm:pr-4 text-right font-bold text-slate-900 font-mono">
-                      {formatMoney(item.lineTotal)}
-                    </td>
-                  </tr>
+                  <div key={item.id} className="leading-tight">
+                    <div className="font-bold break-words">{item.product.name}</div>
+                    <div className="flex justify-between pl-1">
+                      <span>
+                        {item.quantity} {item.product.unit || 'pcs'} x {formatMoney(item.unitPrice)}
+                      </span>
+                      <span className="font-bold">{formatMoney(item.lineTotal)}</span>
+                    </div>
+                    {item.freeQuantity > 0 && (
+                      <div className="pl-1 font-bold text-[9px] text-black">
+                        &gt;&gt; FREE PROMO: +{item.freeQuantity} {item.product.unit || 'pcs'} (Rs. 0.00)
+                      </div>
+                    )}
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </div>
 
-          {/* Totals Breakdown */}
-          <div className="flex justify-end pt-2">
-            <div className="w-full sm:w-64 space-y-1.5 sm:space-y-2 text-sm">
-              <div className="flex justify-between text-slate-600">
-                <span>Subtotal:</span>
-                <span className="font-medium text-slate-900 font-mono">{formatMoney(order.subtotal)}</span>
-              </div>
-              {order.items.some(i => (i.freeQuantity || 0) > 0) && (
-                <div className="flex justify-between text-xs text-emerald-700 font-medium">
-                  <span>Promotional Units:</span>
-                  <span className="font-mono">
-                    {order.items.reduce((acc, i) => acc + (i.freeQuantity || 0), 0)} Free (Rs. 0)
-                  </span>
+              {/* Totals Section */}
+              <div className="border-t border-black border-dashed my-1.5" />
+              <div className="space-y-1 text-[10px]">
+                <div className="flex justify-between">
+                  <span>Subtotal:</span>
+                  <span>{formatMoney(order.subtotal)}</span>
                 </div>
-              )}
-              {order.discountAmount > 0 && (
-                <div className="flex justify-between text-emerald-600 font-medium">
-                  <span>Tier Discount:</span>
-                  <span className="font-mono">-{formatMoney(order.discountAmount)}</span>
+
+                {order.items.some((i) => (i.freeQuantity || 0) > 0) && (
+                  <div className="flex justify-between font-semibold">
+                    <span>Promotional Units:</span>
+                    <span>
+                      {order.items.reduce((acc, i) => acc + (i.freeQuantity || 0), 0)} Free pcs
+                    </span>
+                  </div>
+                )}
+
+                {order.discountAmount > 0 && (
+                  <div className="flex justify-between">
+                    <span>Discount:</span>
+                    <span>-{formatMoney(order.discountAmount)}</span>
+                  </div>
+                )}
+
+                <div className="border-t-2 border-black my-1" />
+                <div className="flex justify-between text-xs font-black py-0.5">
+                  <span>NET TOTAL:</span>
+                  <span>{formatMoney(order.netTotal)}</span>
                 </div>
-              )}
-              <div className="flex justify-between text-base font-bold text-slate-900 border-t border-slate-200 pt-2">
-                <span>Net Total:</span>
-                <span className="font-mono text-blue-600">{formatMoney(order.netTotal)}</span>
-              </div>
-              <div className="flex justify-between text-xs text-slate-600 pt-1">
-                <span>Cash Paid:</span>
-                <span className="font-mono font-bold text-emerald-600">{formatMoney(order.cashReceived || 0)}</span>
-              </div>
-              {order.netTotal - (order.cashReceived || 0) > 0 && (
-                <div className="flex justify-between text-xs text-rose-600 font-bold pt-1">
-                  <span>Credit Balance:</span>
-                  <span className="font-mono">{formatMoney(order.netTotal - (order.cashReceived || 0))}</span>
+                <div className="border-t-2 border-black my-1" />
+
+                <div className="flex justify-between">
+                  <span>Payment Method:</span>
+                  <span className="font-bold">{order.paymentMethod || 'CASH'}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span>Amount Paid:</span>
+                  <span className="font-bold">{formatMoney(order.cashReceived || 0)}</span>
+                </div>
+
+                {order.netTotal - (order.cashReceived || 0) > 0 && (
+                  <div className="flex justify-between font-bold">
+                    <span>Credit Balance Due:</span>
+                    <span>{formatMoney(order.netTotal - (order.cashReceived || 0))}</span>
+                  </div>
+                )}
+
+                {(order.cashReceived || 0) > order.netTotal && (
+                  <div className="flex justify-between font-bold">
+                    <span>Change Returned:</span>
+                    <span>{formatMoney((order.cashReceived || 0) - order.netTotal)}</span>
+                  </div>
+                )}
+              </div>
+
+              {order.notes && (
+                <>
+                  <div className="border-t border-black border-dashed my-1.5" />
+                  <div className="text-[9px]">
+                    <span className="font-bold">Notes:</span> {order.notes}
+                  </div>
+                </>
               )}
+
+              {/* Policy & Terms */}
+              <div className="border-t border-black border-dashed my-2" />
+              <div className="text-center text-[9px] space-y-0.5">
+                {companySettings?.invoiceFooterNote ? (
+                  <p>{companySettings.invoiceFooterNote}</p>
+                ) : (
+                  <>
+                    <p>Goods received in satisfactory condition.</p>
+                    <p className="font-bold">Thank you for your business!</p>
+                  </>
+                )}
+              </div>
+
+              {/* Tear-off Signatures */}
+              <div className="mt-4 pt-2 border-t border-black border-dashed text-[9px] space-y-3">
+                <div className="flex justify-between items-end gap-2">
+                  <div>
+                    <p className="font-bold mb-3">Delivered By:</p>
+                    <div className="border-b border-black w-24"></div>
+                    <p className="mt-0.5 text-[8px]">{order.lorry?.driverName || 'Driver Sign'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold mb-3">Received By:</p>
+                    <div className="border-b border-black w-24 ml-auto"></div>
+                    <p className="mt-0.5 text-[8px]">Shop Stamp / Sign</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Thermal Paper Margin */}
+              <div className="pt-4 text-center text-[8px] text-slate-400 print:text-black">
+                - - - - - - - - - - - - - - - - - -
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ========================================================
+               A4 / FULL SLIP LAYOUT (OFFICE / DESKTOP DISPATCH)
+               ======================================================== */
+            <div className="bg-white p-5 sm:p-8 rounded-2xl shadow-sm border border-slate-200 space-y-5 text-slate-900">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-3 border-b border-slate-200 pb-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-900">
+                    DISTRIBUTION SALES BILL
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-500 mt-1">
+                    <span>System Ref: {order.orderNumber}</span>
+                    {order.paperBillNumber && (
+                      <span className="text-blue-600 font-bold">Paper Bill #: {order.paperBillNumber}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Date: {new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
 
-          {/* Policy / Terms Notice from Settings */}
-          {companySettings?.invoiceFooterNote && (
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-[11px] text-slate-500 text-center italic">
-              {companySettings.invoiceFooterNote}
+                <div className="text-left sm:text-right">
+                  <h3 className="font-bold text-sm text-slate-900">
+                    {companySettings?.companyName || 'Samantha Distributors'}
+                  </h3>
+                  {companySettings?.address && (
+                    <p className="text-xs text-slate-500">{companySettings.address}</p>
+                  )}
+                  {companySettings?.phone && (
+                    <p className="text-xs text-slate-500 font-mono">Tel: {companySettings.phone}</p>
+                  )}
+                  {order.lorry ? (
+                    <div className="text-xs text-slate-600 mt-1 space-y-0.5">
+                      <p className="font-semibold text-slate-900">
+                        Lorry: {order.lorry.vehicleNumber} ({order.lorry.driverName})
+                      </p>
+                      <p className="text-blue-600 font-medium">Route: {order.route?.name || order.lorry.route?.name || 'Local Route'}</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-1">Warehouse Central Counter</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Client & Destination Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-xl border border-slate-100 text-sm">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Retail Outlet
+                  </span>
+                  <p className="font-bold text-slate-900">{order.customer.name}</p>
+                  {order.customer.companyName && (
+                    <p className="text-xs text-slate-600">{order.customer.companyName}</p>
+                  )}
+                  <p className="text-xs text-slate-600 mt-0.5">{order.customer.deliveryAddress || order.customer.city}</p>
+                  <p className="text-xs text-slate-600 font-mono">{order.customer.phone}</p>
+                </div>
+
+                <div className="text-left sm:text-right">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Account & Payment
+                  </span>
+                  <p className="text-xs text-slate-600">
+                    Client Code: <span className="font-mono font-semibold text-slate-900">{order.customer.code}</span>
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Payment Mode: <span className="font-semibold text-slate-900">{order.paymentMethod || 'CASH'}</span>
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Status: <span className="font-semibold text-slate-900">{order.paymentStatus}</span>
+                  </p>
+                  {order.notes && (
+                    <div className="mt-1.5 text-xs text-slate-600 bg-white p-2 rounded-lg text-left border border-slate-200">
+                      <strong>Notes:</strong> {order.notes}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div className="border border-slate-200 rounded-xl overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
+                    <tr>
+                      <th className="p-2.5 pl-3">Item & SKU</th>
+                      <th className="p-2.5 text-center">Unit</th>
+                      <th className="p-2.5 text-center">Qty</th>
+                      <th className="p-2.5 text-right">Unit Price</th>
+                      <th className="p-2.5 pr-3 text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {order.items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="p-2.5 pl-3">
+                          <p className="font-medium text-slate-900">{item.product.name}</p>
+                          <span className="text-[10px] font-mono text-slate-400">{item.product.sku}</span>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-500">{item.product.unit}</td>
+                        <td className="p-2.5 text-center font-bold text-slate-900">
+                          {item.quantity}
+                          {item.freeQuantity > 0 && (
+                            <span className="block text-[10px] font-semibold text-emerald-600">
+                              +{item.freeQuantity} Free
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-slate-600">{formatMoney(item.unitPrice)}</td>
+                        <td className="p-2.5 pr-3 text-right font-bold text-slate-900 font-mono">
+                          {formatMoney(item.lineTotal)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totals Breakdown */}
+              <div className="flex justify-end pt-1">
+                <div className="w-full sm:w-64 space-y-1.5 text-xs">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal:</span>
+                    <span className="font-medium text-slate-900 font-mono">{formatMoney(order.subtotal)}</span>
+                  </div>
+                  {order.items.some((i) => (i.freeQuantity || 0) > 0) && (
+                    <div className="flex justify-between text-emerald-700 font-medium">
+                      <span>Promotional Units:</span>
+                      <span className="font-mono">
+                        {order.items.reduce((acc, i) => acc + (i.freeQuantity || 0), 0)} Free
+                      </span>
+                    </div>
+                  )}
+                  {order.discountAmount > 0 && (
+                    <div className="flex justify-between text-emerald-600 font-medium">
+                      <span>Discount:</span>
+                      <span className="font-mono">-{formatMoney(order.discountAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-1.5">
+                    <span>Net Total:</span>
+                    <span className="font-mono text-blue-600">{formatMoney(order.netTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Cash Paid:</span>
+                    <span className="font-mono font-bold text-emerald-600">{formatMoney(order.cashReceived || 0)}</span>
+                  </div>
+                  {order.netTotal - (order.cashReceived || 0) > 0 && (
+                    <div className="flex justify-between text-rose-600 font-bold">
+                      <span>Credit Balance:</span>
+                      <span className="font-mono">{formatMoney(order.netTotal - (order.cashReceived || 0))}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Policy / Terms Notice */}
+              {companySettings?.invoiceFooterNote && (
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 text-[10px] text-slate-500 text-center italic">
+                  {companySettings.invoiceFooterNote}
+                </div>
+              )}
+
+              {/* Signatures */}
+              <div className="pt-4 grid grid-cols-2 gap-6 border-t border-slate-200 text-xs text-slate-400">
+                <div>
+                  <p className="font-semibold text-slate-600 mb-4">Delivered By:</p>
+                  <div className="border-b border-dashed border-slate-300 w-40"></div>
+                  <p className="mt-1 text-[10px]">{order.lorry ? `${order.lorry.driverName} (${order.lorry.vehicleNumber})` : 'Warehouse Dispatch'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold text-slate-600 mb-4">Received By:</p>
+                  <div className="border-b border-dashed border-slate-300 w-40 ml-auto"></div>
+                  <p className="mt-1 text-[10px]">Authorized Shop Stamp & Sign</p>
+                </div>
+              </div>
             </div>
           )}
-
-          {/* Delivery Signatures */}
-          <div className="pt-6 sm:pt-8 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 border-t border-slate-200 text-xs text-slate-400">
-            <div>
-              <p className="font-semibold text-slate-600 mb-4 sm:mb-6">Delivered By (Driver):</p>
-              <div className="border-b border-dashed border-slate-300 w-48"></div>
-              <p className="mt-1 text-[11px]">{order.lorry ? `${order.lorry.driverName} (${order.lorry.vehicleNumber})` : 'Warehouse Dispatch'}</p>
-            </div>
-            <div className="text-left sm:text-right">
-              <p className="font-semibold text-slate-600 mb-4 sm:mb-6">Received By (Customer):</p>
-              <div className="border-b border-dashed border-slate-300 w-48 sm:ml-auto"></div>
-              <p className="mt-1 text-[11px]">Authorized Shop Stamp & Signature</p>
-            </div>
-          </div>
         </div>
       </div>
     </div>

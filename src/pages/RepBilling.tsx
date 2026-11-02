@@ -1023,7 +1023,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>Print Receipt Slip</span>
+                <span>Print 80mm Receipt Slip</span>
               </button>
 
               <button

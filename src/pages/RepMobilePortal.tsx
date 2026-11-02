@@ -24,6 +24,7 @@ export const RepMobilePortal: React.FC<RepMobilePortalProps> = ({ user, onLogout
         <InvoiceModal
           order={activeInvoiceOrder}
           onClose={() => setActiveInvoiceOrder(null)}
+          defaultFormat="80mm"
         />
       )}
     </div>
