@@ -498,6 +498,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     loadFinishedBills(selectedLorryId || undefined);
   };
 
+  const handleCancelCheckout = () => {
+    if (window.confirm('Are you sure you want to cancel this bill? The current cart items will be cleared.')) {
+      handleStartNewBill();
+    }
+  };
+
   const stepLabels = ['Customer', 'Cart', 'Brand', 'Items', 'Checkout'];
 
   if (loading) {
@@ -1148,6 +1154,27 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         {/* ======================================================== */}
         {currentStep === 5 && (
           <div className="space-y-3">
+            {/* Top Navigation & Cancel Header */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(2)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+                <span>Back to Cart</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCancelCheckout}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold transition shadow-2xs cursor-pointer active:scale-95"
+              >
+                <X className="w-3.5 h-3.5 text-rose-600" />
+                <span>Cancel Bill</span>
+              </button>
+            </div>
+
             {/* Customer Pill */}
             <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
               <div>
@@ -1291,7 +1318,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               type="button"
               disabled={submitting}
               onClick={handleFinalCheckout}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 active:scale-[0.99] transition disabled:opacity-60"
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 active:scale-[0.99] transition disabled:opacity-60 cursor-pointer"
             >
               {submitting ? (
                 <span className="flex items-center gap-2">
@@ -1305,6 +1332,29 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                 </>
               )}
             </button>
+
+            {/* Bottom Actions: Back to Cart & Cancel Bill */}
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => setCurrentStep(2)}
+                className="py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98 disabled:opacity-50"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
+                <span>Back to Cart</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleCancelCheckout}
+                className="py-2.5 px-3 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 font-bold text-xs rounded-xl shadow-2xs flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98 disabled:opacity-50"
+              >
+                <X className="w-3.5 h-3.5 text-rose-500" />
+                <span>Cancel Bill</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
