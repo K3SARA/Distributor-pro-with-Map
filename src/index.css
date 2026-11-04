@@ -77,7 +77,8 @@
     display: none !important;
   }
 
-  #printable-invoice {
+  #printable-invoice,
+  #printable-summary {
     padding: 0 !important;
     max-height: none !important;
     overflow: visible !important;

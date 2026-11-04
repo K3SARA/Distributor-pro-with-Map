@@ -83,7 +83,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4"
+      style={{ zIndex: 100 }}
+    >
       <div className={`bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full overflow-hidden flex flex-col max-h-[95vh] transition-all duration-200 ${
         format === '80mm' ? 'max-w-md' : 'max-w-2xl'
       }`}>

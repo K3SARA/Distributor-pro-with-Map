@@ -122,8 +122,17 @@ export const CustomerService = {
 };
 
 export const OrderService = {
-  getAll: (status?: string, lorryId?: string, routeId?: string, limit?: number) =>
-    api.get<Order[]>('/orders', { params: { status, lorryId, routeId, limit } }).then(r => r.data),
+  getAll: (
+    status?: string,
+    lorryId?: string,
+    routeId?: string,
+    limit?: number,
+    from?: string,
+    to?: string
+  ) =>
+    api
+      .get<Order[]>('/orders', { params: { status, lorryId, routeId, limit, from, to } })
+      .then(r => r.data),
   getById: (id: string) =>
     api.get<Order>(`/orders/${id}`).then(r => r.data),
   create: (payload: {

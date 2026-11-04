@@ -250,22 +250,222 @@ export function build80mmEscPosReceipt(order: Order, settings?: SystemSettings |
 /**
  * Direct Print to Bluetooth Thermal Printer using Web Bluetooth API
  */
-export async function printToBluetoothThermalPrinter(
-  order: Order,
-  settings?: SystemSettings | null,
+export interface RepBillsSummaryData {
+  repName?: string;
+  repPhone?: string;
+  vehicleNumber?: string;
+  routeName?: string;
+  driverName?: string;
+  dateStr?: string;
+  filterLabel?: string;
+  bills: Order[];
+  summary: {
+    totalBills: number;
+    totalValue: number;
+    totalCash: number;
+    totalCredit: number;
+    cashCount: number;
+    creditCount: number;
+    chequeCount?: number;
+    totalCheque?: number;
+  };
+  productSummary?: {
+    name: string;
+    unit: string;
+    quantity: number;
+    freeQuantity: number;
+    totalValue: number;
+  }[];
+}
+
+/**
+ * Build ESC/POS Byte Buffer for 80mm Rep Bills Summary Slip
+ */
+export function build80mmEscPosBillsSummary(
+  data: RepBillsSummaryData,
+  settings?: SystemSettings | null
+): Uint8Array {
+  const chunks: number[] = [];
+
+  const addBytes = (bytes: number[]) => {
+    for (const b of bytes) chunks.push(b);
+  };
+
+  const addText = (text: string) => {
+    const encoded = encodeText(text);
+    for (let i = 0; i < encoded.length; i++) {
+      chunks.push(encoded[i]);
+    }
+  };
+
+  const addLine = (text = '') => {
+    addText(text);
+    addBytes(COMMANDS.LINE_FEED);
+  };
+
+  // 1. Initialize
+  addBytes(COMMANDS.INIT);
+
+  // 2. Header
+  addBytes(COMMANDS.ALIGN_CENTER);
+  addBytes(COMMANDS.DOUBLE_SIZE);
+  addBytes(COMMANDS.BOLD_ON);
+  addLine(settings?.companyName || 'Sunbakers & confectionary');
+  addBytes(COMMANDS.NORMAL_SIZE);
+  addBytes(COMMANDS.BOLD_OFF);
+
+  addLine(settings?.address || '239,kurukutthala ,kadugannawa');
+  addLine(`Tel: ${settings?.phone || '+94 77 254 9414'}`);
+  if (settings?.registrationNumber) {
+    addLine(`Reg/VAT: ${settings.registrationNumber}`);
+  }
+
+  addLine(dividerLine('='));
+  addBytes(COMMANDS.BOLD_ON);
+  addLine('*** SALES REP BILLS SUMMARY ***');
+  addBytes(COMMANDS.BOLD_OFF);
+  addLine(dividerLine('='));
+
+  // 3. Metadata
+  addBytes(COMMANDS.ALIGN_LEFT);
+  const now = new Date();
+  const dateStr = now.toLocaleDateString();
+  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  addLine(padTwoColumns(`Date: ${dateStr} ${timeStr}`, `Bills: ${data.bills.length}`));
+  addLine(padTwoColumns(`Rep: ${data.repName || 'Sales Rep'}`, `Van: ${data.vehicleNumber || 'Route Lorry'}`));
+  if (data.routeName) {
+    addLine(`Route: ${data.routeName}`);
+  }
+  if (data.driverName) {
+    addLine(`Driver: ${data.driverName}`);
+  }
+  if (data.filterLabel && data.filterLabel !== 'ALL') {
+    addLine(`Filtered By: ${data.filterLabel} BILLS ONLY`);
+  }
+  addLine(dividerLine('-'));
+
+  // 4. Financial KPI Box
+  addBytes(COMMANDS.BOLD_ON);
+  addBytes(COMMANDS.DOUBLE_HEIGHT);
+  addLine(padTwoColumns('TOTAL SALES:', `Rs.${data.summary.totalValue.toFixed(2)}`));
+  addBytes(COMMANDS.NORMAL_SIZE);
+  addBytes(COMMANDS.BOLD_OFF);
+  addLine(dividerLine('-'));
+
+  addLine(padTwoColumns('CASH COLLECTED:', `Rs.${data.summary.totalCash.toFixed(2)}`));
+  addLine(padTwoColumns('  Cash Bills Count:', `${data.summary.cashCount} bills`));
+  addLine(padTwoColumns('CREDIT GIVEN:', `Rs.${data.summary.totalCredit.toFixed(2)}`));
+  addLine(padTwoColumns('  Credit Bills Count:', `${data.summary.creditCount} bills`));
+  if (data.summary.totalCheque && data.summary.totalCheque > 0) {
+    addLine(padTwoColumns('CHEQUES COLLECTED:', `Rs.${data.summary.totalCheque.toFixed(2)}`));
+    addLine(padTwoColumns('  Cheque Bills Count:', `${data.summary.chequeCount || 0} bills`));
+  }
+  addLine(dividerLine('='));
+
+  // 5. Bills Listing
+  addBytes(COMMANDS.BOLD_ON);
+  addLine(`*** BILLS BREAKDOWN (${data.bills.length} BILLS) ***`);
+  addLine(padTwoColumns('SLIP# / TIME', 'AMOUNT'));
+  addLine(padTwoColumns(' CUSTOMER [MODE]', 'STATUS / DUE'));
+  addBytes(COMMANDS.BOLD_OFF);
+  addLine(dividerLine('-'));
+
+  data.bills.forEach((bill, idx) => {
+    const slip = bill.paperBillNumber ? `#${bill.paperBillNumber}` : bill.orderNumber;
+    const time = new Date(bill.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const net = `Rs.${bill.netTotal.toFixed(2)}`;
+    addLine(padTwoColumns(`${idx + 1}. ${slip} (${time})`, net));
+
+    const custName = (bill.customer?.companyName || bill.customer?.name || 'Customer').slice(0, 24);
+    const creditDue = Math.max(0, bill.netTotal - (bill.cashReceived || 0));
+    const statusStr =
+      bill.paymentMethod === 'CASH'
+        ? '[CASH] PAID'
+        : bill.paymentMethod === 'CHEQUE'
+        ? '[CHQ] RECORDED'
+        : creditDue > 0
+        ? `[CR] Due: Rs.${creditDue.toFixed(2)}`
+        : '[CR] CLEARED';
+
+    addLine(padTwoColumns(`   ${custName}`, statusStr));
+  });
+
+  addLine(dividerLine('-'));
+
+  // 6. Product-wise aggregate units sold
+  if (data.productSummary && data.productSummary.length > 0) {
+    addBytes(COMMANDS.BOLD_ON);
+    addLine('*** PRODUCT SALES SUMMARY ***');
+    addLine(padTwoColumns('ITEM DESCRIPTION', 'QTY [FREE]'));
+    addBytes(COMMANDS.BOLD_OFF);
+    addLine(dividerLine('-'));
+
+    let totalSoldUnits = 0;
+    let totalFreeUnits = 0;
+
+    data.productSummary.forEach((prod) => {
+      totalSoldUnits += prod.quantity;
+      totalFreeUnits += prod.freeQuantity || 0;
+      const name = prod.name.slice(0, 26);
+      const qtyStr = `${prod.quantity} ${prod.unit || 'pcs'}${
+        prod.freeQuantity ? ` (+${prod.freeQuantity}F)` : ''
+      }`;
+      addLine(padTwoColumns(name, qtyStr));
+      addLine(padTwoColumns(`   Total Value:`, `Rs.${prod.totalValue.toFixed(2)}`));
+    });
+
+    addLine(dividerLine('-'));
+    addBytes(COMMANDS.BOLD_ON);
+    addLine(
+      padTwoColumns(
+        'TOTAL UNITS SOLD:',
+        `${totalSoldUnits} pcs${totalFreeUnits > 0 ? ` (+${totalFreeUnits} Free)` : ''}`
+      )
+    );
+    addBytes(COMMANDS.BOLD_OFF);
+    addLine(dividerLine('='));
+  }
+
+  // 7. Signatures
+  addLine('');
+  addBytes(COMMANDS.ALIGN_LEFT);
+  addLine(padTwoColumns('Rep Signature:', 'Supervisor / Cashier:'));
+  addLine('');
+  addLine(padTwoColumns('____________________', '____________________'));
+  addLine(padTwoColumns(data.repName || 'Sales Rep', 'Store / Cash Office'));
+  addLine('');
+
+  // 8. Footer Notice
+  addBytes(COMMANDS.ALIGN_CENTER);
+  addLine('*** END OF ROUTE SUMMARY ***');
+  addLine('Generated from Sales Rep Billing App');
+  addLine(dividerLine('.'));
+
+  // 9. Feed and Cut
+  addBytes(COMMANDS.PAPER_FEED_5);
+  addBytes(COMMANDS.PARTIAL_CUT);
+
+  return new Uint8Array(chunks);
+}
+
+/**
+ * Shared helper to send ESC/POS byte array to Bluetooth printer
+ */
+export async function sendEscPosToBluetoothDevice(
+  receiptData: Uint8Array,
   onStatusChange?: (status: string) => void
 ): Promise<{ success: boolean; message: string }> {
   if (!isWebBluetoothSupported()) {
     return {
       success: false,
-      message: 'Web Bluetooth is not supported on this browser. Please use the System Print option to print via Bluetooth printer.'
+      message: 'Web Bluetooth is not supported on this browser. Please use the System Print option.'
     };
   }
 
   try {
     onStatusChange?.('Searching for Bluetooth printer...');
 
-    // Request Bluetooth device - accept all devices or filter by common printer services
     const nav = navigator as any;
     const device = await nav.bluetooth.requestDevice({
       acceptAllDevices: true,
@@ -285,10 +485,8 @@ export async function printToBluetoothThermalPrinter(
 
     onStatusChange?.('Locating printer communication channel...');
 
-    // Discover the writable characteristic
     let writeCharacteristic: any = null;
 
-    // Search across services
     for (const serviceUuid of BLUETOOTH_PRINTER_SERVICES) {
       try {
         const service = await server.getPrimaryService(serviceUuid);
@@ -300,12 +498,11 @@ export async function printToBluetoothThermalPrinter(
           }
         }
       } catch {
-        // Continue searching other services
+        // continue
       }
       if (writeCharacteristic) break;
     }
 
-    // Fallback: search all available services if known UUIDs didn't match
     if (!writeCharacteristic && server.getPrimaryServices) {
       try {
         const allServices = await server.getPrimaryServices();
@@ -328,12 +525,8 @@ export async function printToBluetoothThermalPrinter(
       throw new Error('Could not find a writable Bluetooth channel on this printer.');
     }
 
-    onStatusChange?.('Generating 80mm ESC/POS receipt...');
-    const receiptData = build80mmEscPosReceipt(order, settings);
+    onStatusChange?.('Sending data to 80mm thermal printer...');
 
-    onStatusChange?.('Printing receipt slip...');
-
-    // Chunk data to 100-byte packets to prevent BLE buffer overflow
     const CHUNK_SIZE = 100;
     for (let i = 0; i < receiptData.length; i += CHUNK_SIZE) {
       const chunk = receiptData.slice(i, i + CHUNK_SIZE);
@@ -342,13 +535,11 @@ export async function printToBluetoothThermalPrinter(
       } else {
         await writeCharacteristic.writeValue(chunk);
       }
-      // Small 25ms delay between chunks to let thermal head process
       await new Promise(r => setTimeout(r, 25));
     }
 
-    onStatusChange?.('Receipt printed successfully!');
+    onStatusChange?.('Summary printed successfully!');
 
-    // Clean disconnect
     setTimeout(() => {
       try {
         device.gatt?.disconnect();
@@ -365,5 +556,37 @@ export async function printToBluetoothThermalPrinter(
       success: false,
       message: error.message || 'Failed to print via Bluetooth. Please use System Print.'
     };
+  }
+}
+
+/**
+ * Direct Print Single Invoice to Bluetooth Thermal Printer
+ */
+export async function printToBluetoothThermalPrinter(
+  order: Order,
+  settings?: SystemSettings | null,
+  onStatusChange?: (status: string) => void
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const receiptData = build80mmEscPosReceipt(order, settings);
+    return await sendEscPosToBluetoothDevice(receiptData, onStatusChange);
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Bluetooth printing failed' };
+  }
+}
+
+/**
+ * Direct Print Rep's Bills Summary to Bluetooth Thermal Printer
+ */
+export async function printBillsSummaryToBluetooth(
+  data: RepBillsSummaryData,
+  settings?: SystemSettings | null,
+  onStatusChange?: (status: string) => void
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const summaryBytes = build80mmEscPosBillsSummary(data, settings);
+    return await sendEscPosToBluetoothDevice(summaryBytes, onStatusChange);
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Bluetooth printing failed' };
   }
 }

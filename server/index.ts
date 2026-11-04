@@ -2996,7 +2996,7 @@ app.put('/api/cheques/:id', async (req: Request, res: Response) => {
 // List orders with filter
 app.get('/api/orders', async (req: Request, res: Response) => {
   try {
-    const { status, lorryId, routeId, limit } = req.query;
+    const { status, lorryId, routeId, limit, from, to, startDate, endDate } = req.query;
     const where: any = {};
     if (status && typeof status === 'string' && status !== 'ALL') {
       where.status = status;
@@ -3006,6 +3006,17 @@ app.get('/api/orders', async (req: Request, res: Response) => {
     }
     if (routeId && typeof routeId === 'string' && routeId !== 'ALL') {
       where.routeId = routeId;
+    }
+    const fromVal = (from || startDate) as string | undefined;
+    const toVal = (to || endDate) as string | undefined;
+    if (fromVal || toVal) {
+      where.createdAt = {};
+      if (fromVal) {
+        where.createdAt.gte = new Date(fromVal);
+      }
+      if (toVal) {
+        where.createdAt.lte = new Date(toVal);
+      }
     }
 
     const orders = await prisma.order.findMany({

@@ -33,6 +33,7 @@ import { Customer, Product, Lorry, Order, User, RepTargetProgress } from '../typ
 import { CustomerService, LorryService, ProductService, OrderService, AuthService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
+import { RepBillsSummaryModal } from '../components/RepBillsSummaryModal';
 
 interface CartItem {
   productId: string;
@@ -106,23 +107,104 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   // Add Customer Modal State
   const [showAddCustomerModal, setShowAddCustomerModal] = useState<boolean>(false);
 
-  // Finished Bills State
+  // Finished Bills State & Filters
+  type BillsDatePreset = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'all' | 'custom';
   const [finishedBills, setFinishedBills] = useState<Order[]>([]);
   const [loadingFinishedBills, setLoadingFinishedBills] = useState<boolean>(false);
   const [showFinishedBillsModal, setShowFinishedBillsModal] = useState<boolean>(false);
   const [billsSearch, setBillsSearch] = useState<string>('');
   const [billsFilter, setBillsFilter] = useState<'ALL' | 'CASH' | 'CREDIT' | 'CHEQUE'>('ALL');
   const [expandedBillId, setExpandedBillId] = useState<string | null>(null);
+  const [showSummaryBillModal, setShowSummaryBillModal] = useState<boolean>(false);
 
-  const loadFinishedBills = async (lorryIdToUse?: string) => {
+  // Date Range Filter State for Finished Bills
+  const [billsDatePreset, setBillsDatePreset] = useState<BillsDatePreset>('today');
+  const [billsDateRange, setBillsDateRange] = useState<{ from: string; to: string }>(() => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    return { from: start.toISOString(), to: end.toISOString() };
+  });
+  const [customBillsStart, setCustomBillsStart] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [customBillsEnd, setCustomBillsEnd] = useState<string>(() => new Date().toISOString().slice(0, 10));
+
+  const getBillsRangeForPreset = (
+    preset: BillsDatePreset,
+    customS?: string,
+    customE?: string
+  ): { from: string; to: string } => {
+    const now = new Date();
+    if (preset === 'all') {
+      return { from: '', to: '' };
+    }
+    if (preset === 'yesterday') {
+      const yStart = new Date(now);
+      yStart.setDate(yStart.getDate() - 1);
+      yStart.setHours(0, 0, 0, 0);
+      const yEnd = new Date(now);
+      yEnd.setDate(yEnd.getDate() - 1);
+      yEnd.setHours(23, 59, 59, 999);
+      return { from: yStart.toISOString(), to: yEnd.toISOString() };
+    }
+    if (preset === 'thisWeek') {
+      const d = new Date(now);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const weekStart = new Date(d.setDate(diff));
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(now);
+      weekEnd.setHours(23, 59, 59, 999);
+      return { from: weekStart.toISOString(), to: weekEnd.toISOString() };
+    }
+    if (preset === 'thisMonth') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const monthEnd = new Date(now);
+      monthEnd.setHours(23, 59, 59, 999);
+      return { from: monthStart.toISOString(), to: monthEnd.toISOString() };
+    }
+    if (preset === 'custom') {
+      const s = customS || customBillsStart;
+      const e = customE || customBillsEnd;
+      const cStart = new Date(s);
+      cStart.setHours(0, 0, 0, 0);
+      const cEnd = new Date(e);
+      cEnd.setHours(23, 59, 59, 999);
+      return { from: cStart.toISOString(), to: cEnd.toISOString() };
+    }
+    // Default 'today'
+    const tStart = new Date(now);
+    tStart.setHours(0, 0, 0, 0);
+    const tEnd = new Date(now);
+    tEnd.setHours(23, 59, 59, 999);
+    return { from: tStart.toISOString(), to: tEnd.toISOString() };
+  };
+
+  const billsDateRangeLabel = useMemo(() => {
+    if (billsDatePreset === 'today') return 'Today';
+    if (billsDatePreset === 'yesterday') return 'Yesterday';
+    if (billsDatePreset === 'thisWeek') return 'This Week';
+    if (billsDatePreset === 'thisMonth') return 'This Month';
+    if (billsDatePreset === 'all') return 'All Time';
+    return `${customBillsStart} to ${customBillsEnd}`;
+  }, [billsDatePreset, customBillsStart, customBillsEnd]);
+
+  const loadFinishedBills = async (
+    lorryIdToUse?: string,
+    rangeToUse?: { from: string; to: string }
+  ) => {
     try {
       setLoadingFinishedBills(true);
       const targetLorry = lorryIdToUse || selectedLorryId || initialLorryId;
+      const activeRange = rangeToUse !== undefined ? rangeToUse : billsDateRange;
       const orders = await OrderService.getAll(
         undefined,
         targetLorry || undefined,
         undefined,
-        150
+        activeRange.from || activeRange.to ? undefined : 300,
+        activeRange.from || undefined,
+        activeRange.to || undefined
       );
       setFinishedBills(orders);
     } catch (err) {
@@ -130,6 +212,22 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     } finally {
       setLoadingFinishedBills(false);
     }
+  };
+
+  const handleDatePresetChange = (newPreset: BillsDatePreset) => {
+    setBillsDatePreset(newPreset);
+    if (newPreset !== 'custom') {
+      const range = getBillsRangeForPreset(newPreset);
+      setBillsDateRange(range);
+      loadFinishedBills(undefined, range);
+    }
+  };
+
+  const handleApplyCustomDates = () => {
+    if (!customBillsStart || !customBillsEnd) return;
+    const range = getBillsRangeForPreset('custom', customBillsStart, customBillsEnd);
+    setBillsDateRange(range);
+    loadFinishedBills(undefined, range);
   };
 
   // Targets Modal State
@@ -369,9 +467,24 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     return Math.max(0, cartSubtotal - discount);
   }, [cartSubtotal, globalDiscountPercent]);
 
+  // Date-filtered bills (filtered by selected date range)
+  const dateFilteredBills = useMemo(() => {
+    return finishedBills.filter(bill => {
+      if (billsDatePreset !== 'all' && billsDateRange.from && billsDateRange.to) {
+        const billTime = new Date(bill.createdAt).getTime();
+        const start = new Date(billsDateRange.from).getTime();
+        const end = new Date(billsDateRange.to).getTime();
+        if (billTime < start || billTime > end) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [finishedBills, billsDatePreset, billsDateRange]);
+
   // Finished Bills Filter & Summary
   const filteredFinishedBills = useMemo(() => {
-    return finishedBills.filter(bill => {
+    return dateFilteredBills.filter(bill => {
       if (billsFilter !== 'ALL' && bill.paymentMethod !== billsFilter) {
         return false;
       }
@@ -387,17 +500,17 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       }
       return true;
     });
-  }, [finishedBills, billsFilter, billsSearch]);
+  }, [dateFilteredBills, billsFilter, billsSearch]);
 
   const finishedBillsSummary = useMemo(() => {
-    const totalBills = finishedBills.length;
-    const totalValue = finishedBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-    const totalCash = finishedBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
+    const totalBills = filteredFinishedBills.length;
+    const totalValue = filteredFinishedBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
+    const totalCash = filteredFinishedBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
     const totalCredit = Math.max(0, totalValue - totalCash);
-    const cashCount = finishedBills.filter(b => b.paymentMethod === 'CASH').length;
-    const creditCount = finishedBills.filter(b => b.paymentMethod === 'CREDIT').length;
+    const cashCount = filteredFinishedBills.filter(b => b.paymentMethod === 'CASH').length;
+    const creditCount = filteredFinishedBills.filter(b => b.paymentMethod === 'CREDIT').length;
     return { totalBills, totalValue, totalCash, totalCredit, cashCount, creditCount };
-  }, [finishedBills]);
+  }, [filteredFinishedBills]);
 
   // Checkout submission
   const handleFinalCheckout = async () => {
@@ -1598,7 +1711,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
       {/* FINISHED BILLS HISTORY MODAL (MINIMAL, NEAT, CLEAN) */}
       {showFinishedBillsModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in">
+        <div className={`fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in ${showSummaryBillModal ? 'print:hidden' : ''}`}>
           <div className="bg-white rounded-3xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-slate-100">
             {/* Header */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
@@ -1611,12 +1724,23 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                     Finished Sales Bills
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    {selectedLorry?.vehicleNumber || 'Route Lorry'} • {finishedBills.length} Total Bills
+                    {selectedLorry?.vehicleNumber || 'Route Lorry'} • {filteredFinishedBills.length} Bills ({billsDateRangeLabel})
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowSummaryBillModal(true)}
+                  disabled={filteredFinishedBills.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs transition shadow-2xs active:scale-95 cursor-pointer"
+                  title="Print Summary Bill (80mm Thermal Receipt)"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Summary</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => loadFinishedBills()}
@@ -1637,23 +1761,42 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             </div>
 
             {/* Top KPI Metrics Strip (Minimal, clean, neat) */}
-            <div className="grid grid-cols-3 gap-2 p-3 sm:px-5 bg-slate-50/80 border-b border-slate-100 text-center shrink-0">
-              <div className="p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Sales</span>
-                <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">{formatMoney(finishedBillsSummary.totalValue)}</span>
+            <div className="p-3 sm:px-5 bg-slate-50/80 border-b border-slate-100 shrink-0 space-y-2">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Sales</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">{formatMoney(finishedBillsSummary.totalValue)}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 block tracking-wider">Cash Collected</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-emerald-800">{formatMoney(finishedBillsSummary.totalCash)}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200/80 shadow-2xs">
+                  <span className="text-[10px] uppercase font-bold text-rose-700 block tracking-wider">Credit Given</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-rose-800">{formatMoney(finishedBillsSummary.totalCredit)}</span>
+                </div>
               </div>
-              <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-200/80 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-emerald-700 block tracking-wider">Cash Collected</span>
-                <span className="font-mono font-bold text-xs sm:text-sm text-emerald-800">{formatMoney(finishedBillsSummary.totalCash)}</span>
-              </div>
-              <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200/80 shadow-2xs">
-                <span className="text-[10px] uppercase font-bold text-rose-700 block tracking-wider">Credit Given</span>
-                <span className="font-mono font-bold text-xs sm:text-sm text-rose-800">{formatMoney(finishedBillsSummary.totalCredit)}</span>
-              </div>
+
+              {filteredFinishedBills.length > 0 && (
+                <div className="flex items-center justify-between px-2 pt-0.5 text-xs text-slate-500">
+                  <span className="text-[11px] font-medium">
+                    Showing {filteredFinishedBills.length} of {dateFilteredBills.length} bills ({billsDateRangeLabel})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSummaryBillModal(true)}
+                    className="text-blue-600 hover:text-blue-800 font-bold text-xs flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <Printer className="w-3 h-3" />
+                    <span>View 80mm Summary Slip</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Filter & Search Bar */}
-            <div className="p-3 sm:px-5 border-b border-slate-100 space-y-2 bg-white shrink-0">
+            <div className="p-3 sm:px-5 border-b border-slate-100 space-y-2.5 bg-white shrink-0">
+              {/* Search Bar */}
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                 <input
@@ -1673,12 +1816,78 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                 )}
               </div>
 
+              {/* Date Range Filter Row */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                  <div className="flex items-center gap-1 text-[11px] font-bold text-slate-500 pr-0.5 shrink-0">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Date:</span>
+                  </div>
+
+                  {(
+                    [
+                      { id: 'today', label: 'Today' },
+                      { id: 'yesterday', label: 'Yesterday' },
+                      { id: 'thisWeek', label: 'This Week' },
+                      { id: 'thisMonth', label: 'This Month' },
+                      { id: 'all', label: 'All Time' },
+                      { id: 'custom', label: 'Custom' }
+                    ] as const
+                  ).map(dp => {
+                    const isActive = billsDatePreset === dp.id;
+                    return (
+                      <button
+                        key={dp.id}
+                        type="button"
+                        onClick={() => handleDatePresetChange(dp.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap shrink-0 cursor-pointer ${
+                          isActive
+                            ? 'bg-blue-600 text-white shadow-2xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {dp.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom Date Pickers */}
+                {billsDatePreset === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-2 rounded-xl border border-slate-200/80 animate-in fade-in text-xs">
+                    <input
+                      type="date"
+                      value={customBillsStart}
+                      onChange={(e) => setCustomBillsStart(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <span className="text-slate-400 text-xs font-medium">to</span>
+                    <input
+                      type="date"
+                      value={customBillsEnd}
+                      onChange={(e) => setCustomBillsEnd(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCustomDates}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-2xs cursor-pointer ml-auto sm:ml-0"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Payment Filter Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                <span className="text-[11px] font-bold text-slate-500 pr-0.5 shrink-0">
+                  Payment:
+                </span>
                 {(['ALL', 'CASH', 'CREDIT', 'CHEQUE'] as const).map(tab => {
                   const count = tab === 'ALL'
-                    ? finishedBills.length
-                    : finishedBills.filter(b => b.paymentMethod === tab).length;
+                    ? dateFilteredBills.length
+                    : dateFilteredBills.filter(b => b.paymentMethod === tab).length;
 
                   const activeStyles =
                     tab === 'CASH'
@@ -1694,13 +1903,13 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                       key={tab}
                       type="button"
                       onClick={() => setBillsFilter(tab)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer ${
                         billsFilter === tab
                           ? activeStyles
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      <span>{tab === 'ALL' ? 'All Bills' : tab}</span>
+                      <span>{tab === 'ALL' ? 'All' : tab}</span>
                       <span className={`text-[10px] font-mono px-1 rounded-full ${
                         billsFilter === tab ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
                       }`}>
@@ -1900,18 +2109,40 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-3 border-t border-slate-100 bg-white shrink-0">
+            <div className="p-3 border-t border-slate-100 bg-white shrink-0 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setShowFinishedBillsModal(false)}
-                className="w-full py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-2xs"
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
               >
                 Close & Return
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowSummaryBillModal(true)}
+                disabled={filteredFinishedBills.length === 0}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs active:scale-95"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Summary Bill</span>
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* REP'S BILLS SUMMARY PRINT MODAL (80mm Thermal & Bluetooth) */}
+      <RepBillsSummaryModal
+        isOpen={showSummaryBillModal}
+        onClose={() => setShowSummaryBillModal(false)}
+        allBills={finishedBills}
+        filteredBills={filteredFinishedBills}
+        activeFilter={billsFilter}
+        dateRangeLabel={billsDateRangeLabel}
+        lorry={selectedLorry}
+        user={user}
+      />
     </div>
   );
 };
