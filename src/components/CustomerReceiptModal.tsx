@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { X, Printer, CheckCircle2, Building2, Calendar, Wallet, FileText, CreditCard } from 'lucide-react';
+import { X, Printer, CheckCircle2 } from 'lucide-react';
 import { CustomerPayment, Customer } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 

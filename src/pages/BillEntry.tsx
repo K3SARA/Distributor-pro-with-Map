@@ -7,17 +7,10 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
-  DollarSign,
-  User,
-  Compass,
   Calendar,
   CreditCard,
   Eye,
   Building2,
-  Store,
-  ShoppingBag,
-  Sparkles,
-  Layers,
   RotateCcw
 } from 'lucide-react';
 import { Lorry, Customer, Order, Product } from '../types';
@@ -62,11 +55,11 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
 
   // Customer Unpaid Bills (for Bill-to-Bill clearance / knock-off)
   const [customerUnpaidBills, setCustomerUnpaidBills] = useState<Order[]>([]);
-  const [loadingUnpaidBills, setLoadingUnpaidBills] = useState<boolean>(false);
+  const [, setLoadingUnpaidBills] = useState<boolean>(false);
   const [settlePreviousBill, setSettlePreviousBill] = useState<boolean>(false);
   const [settleAmount, setSettleAmount] = useState<string>('');
 
-  const [loading, setLoading] = useState<boolean>(false);
+  const [, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

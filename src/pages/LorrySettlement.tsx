@@ -4,17 +4,10 @@ import {
   AlertCircle,
   Truck,
   RotateCcw,
-  Boxes,
   FileCheck2,
-  DollarSign,
-  AlertTriangle,
-  History,
-  ArrowRight,
   TrendingDown,
   Plus,
-  X,
-  Fuel,
-  Receipt
+  X
 } from 'lucide-react';
 import { Lorry, LorryLoading, ExpenseCategory } from '../types';
 import { LorryService, ExpenseService } from '../services/api';
@@ -48,7 +41,7 @@ export const LorrySettlement: React.FC = () => {
   const [expRef, setExpRef] = useState<string>('');
   const [expSaving, setExpSaving] = useState<boolean>(false);
 
-  const [loading, setLoading] = useState<boolean>(false);
+  const [, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

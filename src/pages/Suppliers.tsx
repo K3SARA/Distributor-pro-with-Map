@@ -1,32 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2,
-  Truck,
   Plus,
   Search,
   DollarSign,
-  Calendar,
-  FileText,
   CheckCircle2,
   AlertCircle,
   Trash2,
   Edit3,
-  ArrowDownLeft,
-  ArrowUpRight,
   Eye,
-  CreditCard,
-  Filter,
   Package,
   Phone,
   Mail,
   MapPin,
-  Receipt,
   X,
-  Clock,
-  Layers,
-  ChevronRight,
-  BadgeCheck,
-  RefreshCw,
   Wallet,
   MoreHorizontal
 } from 'lucide-react';
@@ -49,7 +36,7 @@ export const Suppliers: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [, setLoading] = useState<boolean>(true);
   const [search, setSearch] = useState<string>('');
   const [expandedSupplierIds, setExpandedSupplierIds] = useState<Set<string>>(new Set());
 
@@ -70,7 +57,6 @@ export const Suppliers: React.FC = () => {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
 
   const [isGRNModalOpen, setIsGRNModalOpen] = useState<boolean>(false);
-  const [selectedSupplierForGRN, setSelectedSupplierForGRN] = useState<string>('');
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState<boolean>(false);
   const [payingSupplier, setPayingSupplier] = useState<Supplier | null>(null);

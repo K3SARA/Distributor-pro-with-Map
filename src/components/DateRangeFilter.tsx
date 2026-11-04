@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, ChevronDown, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar } from 'lucide-react';
 
 export type DatePreset = 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'custom';
 

@@ -13,17 +13,13 @@ import {
   Truck,
   Calendar,
   Search,
-  Filter,
   Download,
   Trash2,
   Edit2,
   X,
   CheckCircle2,
   AlertCircle,
-  ArrowRight,
   TrendingDown,
-  Layers,
-  CreditCard,
   Building2
 } from 'lucide-react';
 import { ExpenseService, LorryService } from '../services/api';

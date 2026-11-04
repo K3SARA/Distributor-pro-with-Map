@@ -2,25 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Factory,
   Plus,
-  Search,
   Layers,
   Sparkles,
   Boxes,
   CheckCircle2,
   AlertCircle,
-  Clock,
-  ArrowRight,
-  TrendingUp,
   X,
-  FileSpreadsheet,
   PackageCheck,
-  ChevronRight,
-  Info,
-  Building2,
-  Calendar,
   Trash2,
   Check,
-  Filter,
   Edit2
 } from 'lucide-react';
 import { Recipe, ProductionRun, Product, ManufacturingSummary } from '../types';
@@ -40,7 +30,6 @@ export const Manufacturing: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [summary, setSummary] = useState<ManufacturingSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [search, setSearch] = useState<string>('');
 
   // Modals
   const [isRunModalOpen, setIsRunModalOpen] = useState<boolean>(false);

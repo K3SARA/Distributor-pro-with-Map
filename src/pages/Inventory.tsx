@@ -7,8 +7,6 @@ import {
   Edit3, 
   Trash2, 
   Package,
-  Layers,
-  Filter,
   Boxes,
   Truck
 } from 'lucide-react';
@@ -25,7 +23,7 @@ interface InventoryProps {
 export const Inventory: React.FC<InventoryProps> = ({ onNavigateToSuppliers }) => {
   const { formatMoney } = useCurrency();
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [materialFilter, setMaterialFilter] = useState<'ALL' | 'FINISHED' | 'RAW'>('ALL');

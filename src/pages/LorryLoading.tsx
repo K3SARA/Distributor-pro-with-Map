@@ -2,13 +2,11 @@ import React, { useState, useEffect } from 'react';
 import {
   Truck,
   Plus,
-  ArrowRight,
   PackageCheck,
   CheckCircle2,
   Calendar,
   AlertCircle,
   FileSpreadsheet,
-  Printer,
   Boxes,
   Compass,
   RotateCcw

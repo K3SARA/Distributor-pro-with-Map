@@ -2,24 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users,
   Search,
-  CheckCircle2,
   AlertCircle,
   ShoppingBag,
   Layers,
   ArrowRight,
   ArrowLeft,
   Plus,
-  Minus,
   Trash2,
   Printer,
   Truck,
   CreditCard,
   LogOut,
-  ChevronRight,
   Check,
   RotateCcw,
   Target,
-  TrendingUp,
   Calendar,
   Award,
   X,
@@ -59,7 +55,7 @@ interface RepBillingProps {
 
 export const RepBilling: React.FC<RepBillingProps> = ({
   onViewInvoice,
-  onExitToMenu,
+  onExitToMenu: _onExitToMenu,
   initialLorryId,
   user,
   onLogout
@@ -98,8 +94,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [chequeNumber, setChequeNumber] = useState<string>('');
   const [bankName, setBankName] = useState<string>('');
   const [chequeDate, setChequeDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [globalDiscountPercent, setGlobalDiscountPercent] = useState<number>(0);
-  const [notes, setNotes] = useState<string>('');
+  const [globalDiscountPercent] = useState<number>(0);
+  const [notes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [checkoutSuccessOrder, setCheckoutSuccessOrder] = useState<Order | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);

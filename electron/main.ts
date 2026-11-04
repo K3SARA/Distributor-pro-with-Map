@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
-import path from 'path';
+import * as path from 'path';
 import { fork, ChildProcess } from 'child_process';
 
 let mainWindow: BrowserWindow | null = null;

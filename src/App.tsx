@@ -4,10 +4,7 @@ import {
   LayoutDashboard,
   Truck,
   Receipt,
-  RotateCcw,
-  Boxes,
-  Users,
-  BarChart3
+  RotateCcw
 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './pages/Dashboard';

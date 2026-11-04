@@ -8,8 +8,6 @@ import {
   AlertCircle,
   RefreshCw,
   Phone,
-  MapPin,
-  Coins,
   ShieldCheck,
   Edit2,
   Plus,
@@ -22,9 +20,7 @@ import {
   Trash2,
   Users,
   Target,
-  UserPlus,
-  KeyRound,
-  TrendingUp
+  UserPlus
 } from 'lucide-react';
 import { LorryService, RouteService, SettingsService, BackupService, AuthService } from '../services/api';
 import { Lorry, Route, SystemSettings, User } from '../types';

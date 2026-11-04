@@ -3,7 +3,6 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
-  PieChart,
   Percent,
   Calendar,
   Download,
@@ -11,13 +10,7 @@ import {
   Truck,
   Building2,
   Package,
-  Layers,
-  ArrowUpRight,
-  ArrowDownRight,
   Search,
-  Sparkles,
-  FileSpreadsheet,
-  AlertCircle,
   RefreshCw,
   Gift
 } from 'lucide-react';
@@ -465,7 +458,6 @@ export const ProfitAndLoss: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {report.channelBreakdown.map((channel) => {
-                const isProfitable = channel.grossProfit >= 0;
                 const isCounter = channel.id === 'warehouse-counter';
                 const displayName = isCounter ? 'Warehouse Counter' : channel.channelName;
                 const displaySubtext = isCounter ? 'Direct Sales Desk' : channel.subtext;

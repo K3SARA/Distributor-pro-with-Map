@@ -2,26 +2,18 @@ import React, { useState, useEffect } from 'react';
 import {
   Download,
   Printer,
-  FileText,
   ArrowDownRight,
-  ArrowUpRight,
   DollarSign,
-  Calendar,
   Users,
   Boxes,
   Truck,
   Compass,
   RotateCcw,
   TrendingUp,
-  Receipt,
-  Target,
-  Award,
-  Phone,
-  Mail,
-  CheckCircle2
+  Receipt
 } from 'lucide-react';
 import { ReportService } from '../services/api';
-import { StockMovement, Customer, LorryLoading, LorryPerformanceReport, RepPerformanceReport } from '../types';
+import { StockMovement, Customer, LorryPerformanceReport, RepPerformanceReport } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { DateRangeFilter, DatePreset } from '../components/DateRangeFilter';
 import { ProfitAndLoss } from './ProfitAndLoss';
@@ -29,7 +21,7 @@ import { ProfitAndLoss } from './ProfitAndLoss';
 export const Reports: React.FC = () => {
   const { formatMoney } = useCurrency();
   const [activeTab, setActiveTab] = useState<'PNL' | 'LORRIES' | 'ROUTES' | 'SALES' | 'STOCK' | 'BALANCES' | 'REPS'>('LORRIES');
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
 
   // Date filter state
   const [datePreset, setDatePreset] = useState<DatePreset>('today');

@@ -5,11 +5,7 @@ import {
   Bluetooth,
   Receipt,
   Check,
-  AlertCircle,
   Loader2,
-  Smartphone,
-  Truck,
-  User as UserIcon,
   Filter
 } from 'lucide-react';
 import { Order, Lorry, User, SystemSettings } from '../types';
@@ -17,7 +13,6 @@ import { useCurrency } from '../context/CurrencyContext';
 import { SettingsService } from '../services/api';
 import {
   printBillsSummaryToBluetooth,
-  isWebBluetoothSupported,
   RepBillsSummaryData
 } from '../utils/bluetoothPrinter';
 

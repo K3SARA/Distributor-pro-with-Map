@@ -7,18 +7,14 @@ import {
   Coins,
   Receipt,
   RotateCcw,
-  Boxes,
   Printer,
-  CheckCircle,
   ArrowRight,
   RefreshCw,
-  Clock,
   Wallet,
   Calendar,
-  Users,
-  Target
+  Users
 } from 'lucide-react';
-import { ReportService, OrderService } from '../services/api';
+import { ReportService } from '../services/api';
 import { DashboardStats, Order } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { DateRangeFilter, DatePreset } from '../components/DateRangeFilter';

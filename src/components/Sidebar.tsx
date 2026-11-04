@@ -15,7 +15,6 @@ import {
   TrendingDown,
   Building2,
   Factory,
-  Smartphone,
   CreditCard,
   LogOut,
   X

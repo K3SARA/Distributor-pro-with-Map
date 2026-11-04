@@ -3,10 +3,8 @@ import {
   X,
   Printer,
   Bluetooth,
-  Receipt,
   FileText,
   Check,
-  AlertCircle,
   Loader2,
   Smartphone
 } from 'lucide-react';
@@ -14,8 +12,7 @@ import { Order, SystemSettings } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { SettingsService } from '../services/api';
 import {
-  printToBluetoothThermalPrinter,
-  isWebBluetoothSupported
+  printToBluetoothThermalPrinter
 } from '../utils/bluetoothPrinter';
 
 interface InvoiceModalProps {

@@ -6,7 +6,6 @@ import {
   MapPin, 
   Edit3, 
   ShoppingBag, 
-  CreditCard,
   Building2,
   Compass,
   X,
@@ -14,9 +13,7 @@ import {
   Receipt,
   Printer,
   Trash2,
-  CheckCircle2,
-  FileText,
-  AlertCircle
+  CheckCircle2
 } from 'lucide-react';
 import { CustomerService, RouteService } from '../services/api';
 import { Customer, Order, Route, CustomerPayment } from '../types';
@@ -25,12 +22,12 @@ import { CustomerPaymentModal } from '../components/CustomerPaymentModal';
 import { CustomerReceiptModal } from '../components/CustomerReceiptModal';
 import { useCurrency } from '../context/CurrencyContext';
 
-export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = ({ onViewInvoice }) => {
+export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = ({ onViewInvoice: _onViewInvoice }) => {
   const { formatMoney } = useCurrency();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('ALL');
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   // Modals & History drawer

@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import cors from 'cors';
 import * as path from 'path';
 import * as fs from 'fs';
-import { prisma, type PrismaClient } from './prisma';
+import { prisma } from './prisma';
 
 const app = express();
 const PORT = process.env.PORT || 4812;
@@ -14,13 +14,13 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Request logging in dev
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`[API] ${req.method} ${req.url}`);
   next();
 });
 
 // Health check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -82,7 +82,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 });
 
 // List users (for admin management) with performance targets & progress
-app.get('/api/users', async (req: Request, res: Response) => {
+app.get('/api/users', async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       include: {
@@ -333,7 +333,7 @@ app.get('/api/reps/my-targets', async (req: Request, res: Response) => {
 // ========================================================
 
 // 1. Export complete system snapshot as JSON
-app.get('/api/backup/export', async (req: Request, res: Response) => {
+app.get('/api/backup/export', async (_req: Request, res: Response) => {
   try {
     const settings = getSettings();
     const [
@@ -986,7 +986,7 @@ app.post('/api/backup/import', async (req: Request, res: Response) => {
 });
 
 // Purge all demo/transactional data and retain only default admin account
-app.post('/api/database/wipe-all', async (req: Request, res: Response) => {
+app.post('/api/database/wipe-all', async (_req: Request, res: Response) => {
   try {
     await prisma.billPaymentAllocation.deleteMany();
     await prisma.customerPayment.deleteMany();
@@ -1335,7 +1335,7 @@ app.put('/api/suppliers/:id', async (req: Request, res: Response) => {
 app.post('/api/suppliers/:id/payments', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { amount, paymentMethod, notes } = req.body;
+    const { amount } = req.body;
     const payAmount = parseFloat(amount);
 
     if (isNaN(payAmount) || payAmount <= 0) {
@@ -5063,7 +5063,7 @@ app.post('/api/manufacturing/production-runs', async (req: Request, res: Respons
 app.post('/api/manufacturing/production-runs/:id/complete', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { actualQuantity, overheadCost, notes } = req.body;
+    const { actualQuantity, notes } = req.body;
 
     const run = await prisma.productionRun.findUniqueOrThrow({
       where: { id },
@@ -5162,7 +5162,7 @@ app.post('/api/manufacturing/production-runs/:id/cancel', async (req: Request, r
 });
 
 // 11. Manufacturing Summary Stats
-app.get('/api/manufacturing/summary', async (req: Request, res: Response) => {
+app.get('/api/manufacturing/summary', async (_req: Request, res: Response) => {
   try {
     const [totalRuns, activeRecipes, completedRunsAgg] = await Promise.all([
       prisma.productionRun.count(),
