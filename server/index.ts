@@ -60,6 +60,138 @@ function saveSettings(settings: any) {
   }
 }
 
+// Auto-generate unique Employee sequence numbers (EMP-001, EMP-002...)
+async function generateNextEmployeeNumber(): Promise<string> {
+  const allEmployees = await prisma.employee.findMany({ select: { employeeNumber: true } });
+  let maxNum = 0;
+  for (const emp of allEmployees) {
+    const match = emp.employeeNumber.match(/(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  return `EMP-${(maxNum + 1).toString().padStart(3, '0')}`;
+}
+
+// Auto-detect and sync sales reps and lorry drivers from fleet into staff directory
+async function syncFleetAndRepsToEmployees() {
+  try {
+    const [reps, lorries] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: 'REP' },
+        include: { lorry: true }
+      }),
+      prisma.lorry.findMany()
+    ]);
+
+    // 1. Sync Sales Reps into Employee directory
+    for (const rep of reps) {
+      let emp = await prisma.employee.findFirst({
+        where: {
+          OR: [
+            { userId: rep.id },
+            { fullName: rep.fullName.trim() }
+          ]
+        }
+      });
+
+      if (!emp) {
+        const employeeNumber = await generateNextEmployeeNumber();
+        await prisma.employee.create({
+          data: {
+            employeeNumber,
+            fullName: rep.fullName.trim(),
+            callingName: rep.username,
+            phone: rep.phone?.trim() || '077 000 0000',
+            designation: 'Sales Representative',
+            department: 'SALES_FLEET',
+            employmentType: 'FULL_TIME',
+            basicSalary: 45000,
+            allowances: 5000,
+            otHourlyRate: 350,
+            commissionRate: 1.5,
+            userId: rep.id,
+            lorryId: rep.lorryId || null,
+            status: rep.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+            joinDate: rep.createdAt || new Date()
+          }
+        });
+      } else {
+        const updateData: any = {};
+        if (emp.userId !== rep.id) updateData.userId = rep.id;
+        if (emp.lorryId !== (rep.lorryId || null)) updateData.lorryId = rep.lorryId || null;
+        if (rep.phone && (!emp.phone || emp.phone === '077 000 0000')) updateData.phone = rep.phone.trim();
+        const expectedStatus = rep.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+        if (emp.status !== expectedStatus) updateData.status = expectedStatus;
+
+        if (Object.keys(updateData).length > 0) {
+          await prisma.employee.update({
+            where: { id: emp.id },
+            data: updateData
+          });
+        }
+      }
+    }
+
+    // 2. Sync Lorry Drivers into Employee directory
+    for (const lorry of lorries) {
+      if (!lorry.driverName || lorry.driverName.trim() === '') continue;
+
+      const trimmedDriverName = lorry.driverName.trim();
+      let emp = await prisma.employee.findFirst({
+        where: {
+          OR: [
+            { lorryId: lorry.id, designation: { contains: 'Driver' } },
+            { fullName: trimmedDriverName }
+          ]
+        }
+      });
+
+      if (!emp) {
+        const employeeNumber = await generateNextEmployeeNumber();
+        await prisma.employee.create({
+          data: {
+            employeeNumber,
+            fullName: trimmedDriverName,
+            callingName: trimmedDriverName.split(' ')[0],
+            phone: lorry.driverPhone?.trim() || '077 000 0000',
+            designation: 'Lorry Driver',
+            department: 'SALES_FLEET',
+            employmentType: 'FULL_TIME',
+            basicSalary: 40000,
+            dailyRate: 1500,
+            otHourlyRate: 350,
+            allowances: 4000,
+            commissionRate: 0.5,
+            lorryId: lorry.id,
+            status: lorry.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+            joinDate: lorry.createdAt || new Date()
+          }
+        });
+      } else {
+        const updateData: any = {};
+        if (emp.lorryId !== lorry.id) updateData.lorryId = lorry.id;
+        if (emp.fullName !== trimmedDriverName) updateData.fullName = trimmedDriverName;
+        if (lorry.driverPhone && (!emp.phone || emp.phone === '077 000 0000')) {
+          updateData.phone = lorry.driverPhone.trim();
+        }
+        const expectedStatus = lorry.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+        if (emp.status !== expectedStatus) updateData.status = expectedStatus;
+
+        if (Object.keys(updateData).length > 0) {
+          await prisma.employee.update({
+            where: { id: emp.id },
+            data: updateData
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Sync Fleet & Reps Error]', err);
+  }
+}
+
 // ========================================================
 // 0. AUTHENTICATION & USER MANAGEMENT (ADMIN & ROUTE REPS)
 // ========================================================
@@ -204,6 +336,10 @@ app.post('/api/users', async (req: Request, res: Response) => {
       }
     });
 
+    if (user.role === 'REP') {
+      await syncFleetAndRepsToEmployees();
+    }
+
     return res.status(201).json(user);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -238,6 +374,8 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
         }
       }
     });
+
+    await syncFleetAndRepsToEmployees();
 
     return res.json(updated);
   } catch (err: any) {
@@ -1701,6 +1839,9 @@ app.post('/api/lorries', async (req: Request, res: Response) => {
       },
       include: { route: true }
     });
+
+    await syncFleetAndRepsToEmployees();
+
     res.json(lorry);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -1738,6 +1879,9 @@ app.put('/api/lorries/:id', async (req: Request, res: Response) => {
         lorryStocks: { include: { product: true } }
       }
     });
+
+    await syncFleetAndRepsToEmployees();
+
     res.json(updated);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -5255,6 +5399,9 @@ app.get('/api/manufacturing/summary', async (_req: Request, res: Response) => {
 // 12.1 EMPLOYEES DIRECTORY
 app.get('/api/hr/employees', async (req: Request, res: Response) => {
   try {
+    // Automatically detect and sync sales reps and lorry drivers from fleet into staff directory
+    await syncFleetAndRepsToEmployees();
+
     const { department, status, search } = req.query;
     const where: any = {};
 
@@ -5289,6 +5436,17 @@ app.get('/api/hr/employees', async (req: Request, res: Response) => {
     });
 
     res.json(employees);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Explicit endpoint to trigger Fleet & Rep sync
+app.post('/api/hr/employees/sync', async (_req: Request, res: Response) => {
+  try {
+    await syncFleetAndRepsToEmployees();
+    const count = await prisma.employee.count();
+    res.json({ success: true, message: 'Staff directory successfully synced with fleet & reps', totalEmployees: count });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

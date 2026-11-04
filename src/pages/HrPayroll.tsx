@@ -73,6 +73,7 @@ export const HrPayroll: React.FC = () => {
 
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [isRunPayrollModalOpen, setIsRunPayrollModalOpen] = useState(false);
+  const [syncingStaff, setSyncingStaff] = useState(false);
 
   // Load summary and initial data
   const loadSummary = async () => {
@@ -90,6 +91,20 @@ export const HrPayroll: React.FC = () => {
       setEmployees(data);
     } catch (e) {
       console.error('Failed to load employees', e);
+    }
+  };
+
+  const handleSyncStaff = async () => {
+    setSyncingStaff(true);
+    try {
+      await HrService.syncStaff();
+      await loadEmployees();
+      await loadSummary();
+      alert('Staff directory synchronized! Sales Reps and Lorry Drivers auto-assigned from fleet.');
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Failed to sync staff');
+    } finally {
+      setSyncingStaff(false);
     }
   };
 
@@ -283,16 +298,28 @@ export const HrPayroll: React.FC = () => {
         {/* Action Buttons based on Tab */}
         <div className="flex items-center gap-2.5">
           {activeTab === 'staff' && (
-            <button
-              onClick={() => {
-                setEditingEmployee(null);
-                setIsEmployeeModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#0071E3] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Staff Member</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncStaff}
+                disabled={syncingStaff}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                title="Automatically detect and import Sales Reps & Lorry Drivers from fleet"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${syncingStaff ? 'animate-spin' : ''}`} />
+                <span>Sync Fleet & Reps</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setIsEmployeeModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#0071E3] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Staff Member</span>
+              </button>
+            </div>
           )}
 
           {activeTab === 'attendance' && (
@@ -450,6 +477,30 @@ export const HrPayroll: React.FC = () => {
       {/* ---------------------------------------------------- */}
       {activeTab === 'staff' && (
         <div className="space-y-4">
+          {/* Auto-Detection Notification Banner */}
+          <div className="p-3.5 bg-gradient-to-r from-blue-50/90 via-sky-50/70 to-indigo-50/90 border border-blue-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-900 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Truck className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="font-bold block text-slate-900 text-[12.5px]">Auto-Synced Fleet & Reps</span>
+                <span className="text-slate-600 text-[11px]">
+                  Sales Reps and Lorry Drivers added in Fleet & Settings are automatically detected, linked to their lorries, and populated in this directory.
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSyncStaff}
+              disabled={syncingStaff}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-xs font-semibold shadow-2xs transition cursor-pointer self-start sm:self-auto"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-blue-600 ${syncingStaff ? 'animate-spin' : ''}`} />
+              <span>{syncingStaff ? 'Syncing...' : 'Sync Now'}</span>
+            </button>
+          </div>
+
           {/* Filters Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs">
             <div className="relative w-full sm:w-80">
@@ -508,7 +559,19 @@ export const HrPayroll: React.FC = () => {
                       return (
                         <tr key={emp.id} className="hover:bg-slate-50/60 transition">
                           <td className="py-3.5 px-4">
-                            <div className="font-bold text-slate-900 text-sm">{emp.fullName}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-sm">{emp.fullName}</span>
+                              {emp.userId && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                  Rep App User
+                                </span>
+                              )}
+                              {!emp.userId && emp.designation?.toLowerCase().includes('driver') && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                  Fleet Driver
+                                </span>
+                              )}
+                            </div>
                             <div className="text-slate-400 text-[11px] font-mono mt-0.5">
                               {emp.employeeNumber} &bull; {emp.phone}
                             </div>
@@ -547,10 +610,17 @@ export const HrPayroll: React.FC = () => {
                           </td>
                           <td className="py-3.5 px-4">
                             {assignedLorry ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-lg text-[11px] border border-blue-100">
-                                <Truck className="w-3 h-3" />
-                                {assignedLorry.vehicleNumber}
-                              </span>
+                              <div className="space-y-0.5">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-lg text-[11px] border border-blue-100">
+                                  <Truck className="w-3 h-3" />
+                                  {assignedLorry.vehicleNumber}
+                                </span>
+                                {assignedLorry.driverName && emp.designation?.toLowerCase().includes('rep') && (
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Driver: {assignedLorry.driverName}
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-slate-400 text-[11px] italic">Not assigned</span>
                             )}

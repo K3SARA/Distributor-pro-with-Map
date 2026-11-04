@@ -380,6 +380,8 @@ export const HrService = {
   // Employees
   getEmployees: (params?: { department?: string; status?: string; search?: string }) =>
     api.get<Employee[]>('/hr/employees', { params }).then(r => r.data),
+  syncStaff: () =>
+    api.post<{ success: boolean; message: string; totalEmployees: number }>('/hr/employees/sync').then(r => r.data),
   getEmployeeById: (id: string) =>
     api.get<Employee>(`/hr/employees/${id}`).then(r => r.data),
   createEmployee: (data: Partial<Employee>) =>
