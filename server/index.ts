@@ -2089,6 +2089,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
 
       // 5. Process Previous Bill Clearance (Bill-to-Bill Knock-off collected on this delivery visit)
       let totalPreviousBillCollected = 0;
+      let totalPreviousBillCashCollected = 0;
       const settledReceipts: any[] = [];
 
       if (Array.isArray(settlePreviousBills) && settlePreviousBills.length > 0) {
@@ -2118,13 +2119,15 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           });
           const rcptNum: string = `RCPT-${todayStr}-${(countTodayRcpt + settledReceipts.length + 1).toString().padStart(4, '0')}`;
 
+          const prevMethod = prevBill.paymentMethod || 'CASH';
+
           // Create payment receipt for previous bill clearance
           const paymentReceipt: any = await tx.customerPayment.create({
             data: {
               receiptNumber: rcptNum,
               customerId,
               amount: applyAmt,
-              paymentMethod: prevBill.paymentMethod || 'CASH',
+              paymentMethod: prevMethod,
               notes: `Cleared Previous Bill ${targetOrder.orderNumber} during Delivery ${orderNumber}`,
               collectedBy: lorry.driverName || 'Driver',
               lorryId
@@ -2151,7 +2154,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
             data: {
               paidAmount: updatedPaid,
               balanceAmount: updatedBal,
-              cashReceived: updatedPaid,
+              cashReceived: prevMethod === 'CASH' ? updatedPaid : targetOrder.cashReceived,
               paymentStatus: updatedStatus
             }
           });
@@ -2162,13 +2165,18 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
             data: { outstandingBalance: { decrement: applyAmt } }
           });
 
+          if (prevMethod === 'CASH') {
+            totalPreviousBillCashCollected += applyAmt;
+          }
           totalPreviousBillCollected += applyAmt;
           settledReceipts.push(paymentReceipt);
         }
       }
 
       // 6. Update Loading sheet cumulative stats (Current bill cash + previous bill collected cash)
-      const totalCashFromVisit = paidAmount + totalPreviousBillCollected;
+      // Note: Only physical cash increments cashCollected so day-end physical cash handover reconciles accurately
+      const currentBillCash = isCheque ? 0 : paidAmount;
+      const totalCashFromVisit = currentBillCash + totalPreviousBillCashCollected;
       if (activeLoading) {
         await tx.lorryLoading.update({
           where: { id: activeLoading.id },
@@ -3377,6 +3385,8 @@ app.patch('/api/orders/:id/status', async (req: Request, res: Response) => {
 
       if (status === 'CANCELLED' && existing.status !== 'CANCELLED') {
         for (const item of existing.items) {
+          const restoreQty = item.quantity + (item.freeQuantity || 0);
+
           // If order was from lorry, return to lorry or warehouse
           if (existing.lorryId) {
             await tx.lorryStock.upsert({
@@ -3386,17 +3396,17 @@ app.patch('/api/orders/:id/status', async (req: Request, res: Response) => {
                   productId: item.productId
                 }
               },
-              update: { quantity: { increment: item.quantity } },
+              update: { quantity: { increment: restoreQty } },
               create: {
                 lorryId: existing.lorryId,
                 productId: item.productId,
-                quantity: item.quantity
+                quantity: restoreQty
               }
             });
           } else {
             await tx.product.update({
               where: { id: item.productId },
-              data: { currentStock: { increment: item.quantity } }
+              data: { currentStock: { increment: restoreQty } }
             });
           }
 
@@ -3404,17 +3414,22 @@ app.patch('/api/orders/:id/status', async (req: Request, res: Response) => {
             data: {
               productId: item.productId,
               type: 'RETURN',
-              quantity: item.quantity,
+              quantity: restoreQty,
               referenceId: existing.orderNumber,
-              notes: 'Order cancelled; stock restored'
+              notes: `Order cancelled; stock restored (${item.quantity} sold${item.freeQuantity ? ` + ${item.freeQuantity} free promo` : ''})`
             }
           });
         }
 
-        if (existing.paymentStatus !== 'PAID') {
+        // Only revert the unpaid credit portion of this bill from customer balance
+        const creditToRevert = existing.balanceAmount > 0
+          ? existing.balanceAmount
+          : (existing.paymentStatus === 'UNPAID' ? existing.netTotal : 0);
+
+        if (creditToRevert > 0 && existing.customer.code !== 'WALK-IN') {
           await tx.customer.update({
             where: { id: existing.customerId },
-            data: { outstandingBalance: { decrement: existing.netTotal } }
+            data: { outstandingBalance: { decrement: creditToRevert } }
           });
         }
       }
@@ -3506,8 +3521,12 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
     const lowStockProducts = allProducts.filter(p => p.currentStock <= p.minStockAlert);
     const validOrders = periodOrders.filter(o => o.status !== 'CANCELLED');
     const revenueToday = validOrders.reduce((acc, order) => acc + order.netTotal, 0);
-    const cashToday = validOrders.reduce((acc, order) => acc + order.cashReceived, 0);
-    const creditToday = revenueToday - cashToday;
+    const cashToday = validOrders.reduce((acc, order) => acc + (order.cashReceived || 0), 0);
+    const chequesToday = validOrders.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, order) => acc + order.netTotal, 0);
+    const creditToday = validOrders.reduce((acc, order) => {
+      if (order.paymentMethod === 'CHEQUE') return acc;
+      return acc + (order.balanceAmount !== undefined ? order.balanceAmount : Math.max(0, order.netTotal - (order.cashReceived || 0)));
+    }, 0);
     const expensesToday = periodExpenses.reduce((acc, exp) => acc + exp.amount, 0);
     const netProfitToday = revenueToday - expensesToday;
     const creditCollectionsToday = (customerPaymentsPeriod || []).reduce((acc: number, p: any) => acc + p.amount, 0);
@@ -3559,7 +3578,11 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       const repOrdersToday = validOrders.filter(o => o.lorryId === r.lorryId);
       const todaySales = repOrdersToday.reduce((acc, o) => acc + o.netTotal, 0);
       const todayCash = repOrdersToday.reduce((acc, o) => acc + Math.min(o.netTotal, o.cashReceived || 0), 0);
-      const todayCredit = Math.max(0, todaySales - todayCash);
+      const todayCheque = repOrdersToday.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, o) => acc + o.netTotal, 0);
+      const todayCredit = repOrdersToday.reduce((acc, o) => {
+        if (o.paymentMethod === 'CHEQUE') return acc;
+        return acc + (o.balanceAmount !== undefined ? o.balanceAmount : Math.max(0, o.netTotal - (o.cashReceived || 0)));
+      }, 0);
       const todayBillsCount = repOrdersToday.length;
 
       const repMtdOrders = mtdOrders.filter(o => o.lorryId === r.lorryId);
@@ -3581,6 +3604,7 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
         todaySales,
         todayCash,
         todayCredit,
+        todayCheque,
         todayBillsCount,
         dailyTarget,
         dailyAchievementPercentage,
@@ -3594,6 +3618,7 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       revenueToday,
       cashToday,
       creditToday,
+      chequesToday,
       expensesToday,
       netProfitToday,
       creditCollectionsToday,
@@ -4297,7 +4322,11 @@ app.get('/api/reports/profit-and-loss', async (req: Request, res: Response) => {
     const grossProfit = netRevenue - totalCostOfSales;
     const grossProfitMargin = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
     const markupPercentage = totalCostOfSales > 0 ? (grossProfit / totalCostOfSales) * 100 : 0;
-    const creditReceivables = Math.max(0, netRevenue - cashCollected);
+    const chequesCollected = orders.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, o) => acc + o.netTotal, 0);
+    const creditReceivables = orders.reduce((acc, o) => {
+      if (o.paymentMethod === 'CHEQUE') return acc;
+      return acc + (o.balanceAmount !== undefined ? o.balanceAmount : Math.max(0, o.netTotal - (o.cashReceived || 0)));
+    }, 0);
 
     // Process Operating Expenditures (OPEX)
     const totalExpenses = periodExpenses.reduce((acc, exp) => acc + exp.amount, 0);
@@ -4380,6 +4409,7 @@ app.get('/api/reports/profit-and-loss', async (req: Request, res: Response) => {
         totalFreeUnits,
         totalOrdersCount: orders.length,
         cashCollected,
+        chequesCollected,
         creditReceivables,
         totalExpenses,
         netOperatingProfit,

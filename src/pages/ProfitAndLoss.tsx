@@ -92,6 +92,9 @@ export const ProfitAndLoss: React.FC = () => {
     csv += `Net Profit Margin %,${(report.summary.netProfitMargin || 0).toFixed(2)}%\n`;
     csv += `Markup on Cost %,${report.summary.markupPercentage.toFixed(2)}%\n`;
     csv += `Cash Collected,${report.summary.cashCollected}\n`;
+    if (report.summary.chequesCollected) {
+      csv += `Cheques Collected,${report.summary.chequesCollected}\n`;
+    }
     csv += `Credit Receivables,${report.summary.creditReceivables}\n\n`;
 
     csv += 'CHANNEL / FLEET PROFITABILITY\n';
@@ -435,6 +438,14 @@ export const ProfitAndLoss: React.FC = () => {
                       {formatMoney(report.summary.cashCollected)}
                     </strong>
                   </span>
+                  {Boolean(report.summary.chequesCollected && report.summary.chequesCollected > 0) && (
+                    <span>
+                      Cheques Received:{' '}
+                      <strong className="text-blue-700 font-mono text-sm">
+                        {formatMoney(report.summary.chequesCollected!)}
+                      </strong>
+                    </span>
+                  )}
                   <span>
                     Outstanding Credit:{' '}
                     <strong className="text-rose-600 font-mono text-sm">

@@ -502,10 +502,24 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     const totalBills = filteredFinishedBills.length;
     const totalValue = filteredFinishedBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
     const totalCash = filteredFinishedBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
-    const totalCredit = Math.max(0, totalValue - totalCash);
-    const cashCount = filteredFinishedBills.filter(b => b.paymentMethod === 'CASH').length;
-    const creditCount = filteredFinishedBills.filter(b => b.paymentMethod === 'CREDIT').length;
-    return { totalBills, totalValue, totalCash, totalCredit, cashCount, creditCount };
+    const cashBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CASH');
+    const creditBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CREDIT');
+    const chequeBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CHEQUE');
+    const totalCheque = chequeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
+    const totalCredit = filteredFinishedBills.reduce((acc, b) => {
+      if (b.paymentMethod === 'CHEQUE') return acc;
+      return acc + (b.balanceAmount !== undefined ? b.balanceAmount : Math.max(0, (b.netTotal || 0) - (b.cashReceived || 0)));
+    }, 0);
+    return {
+      totalBills,
+      totalValue,
+      totalCash,
+      totalCredit,
+      totalCheque,
+      cashCount: cashBills.length,
+      creditCount: creditBills.length,
+      chequeCount: chequeBills.length
+    };
   }, [filteredFinishedBills]);
 
   // Checkout submission
@@ -1758,7 +1772,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
             {/* Top KPI Metrics Strip (Minimal, clean, neat) */}
             <div className="p-3 sm:px-5 bg-slate-50/80 border-b border-slate-100 shrink-0 space-y-2">
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className={`grid ${finishedBillsSummary.totalCheque > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 text-center`}>
                 <div className="p-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Sales</span>
                   <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">{formatMoney(finishedBillsSummary.totalValue)}</span>
@@ -1767,6 +1781,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                   <span className="text-[10px] uppercase font-bold text-emerald-700 block tracking-wider">Cash Collected</span>
                   <span className="font-mono font-bold text-xs sm:text-sm text-emerald-800">{formatMoney(finishedBillsSummary.totalCash)}</span>
                 </div>
+                {finishedBillsSummary.totalCheque > 0 && (
+                  <div className="p-2 rounded-xl bg-blue-50/70 border border-blue-200/80 shadow-2xs">
+                    <span className="text-[10px] uppercase font-bold text-blue-700 block tracking-wider">Cheques ({finishedBillsSummary.chequeCount})</span>
+                    <span className="font-mono font-bold text-xs sm:text-sm text-blue-800">{formatMoney(finishedBillsSummary.totalCheque)}</span>
+                  </div>
+                )}
                 <div className="p-2 rounded-xl bg-rose-50/70 border border-rose-200/80 shadow-2xs">
                   <span className="text-[10px] uppercase font-bold text-rose-700 block tracking-wider">Credit Given</span>
                   <span className="font-mono font-bold text-xs sm:text-sm text-rose-800">{formatMoney(finishedBillsSummary.totalCredit)}</span>

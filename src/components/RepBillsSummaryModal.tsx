@@ -76,13 +76,16 @@ export const RepBillsSummaryModal: React.FC<RepBillsSummaryModalProps> = ({
     const totalBills = activeBills.length;
     const totalValue = activeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
     const totalCash = activeBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
-    const totalCredit = Math.max(0, totalValue - totalCash);
 
     const cashBills = activeBills.filter((b) => b.paymentMethod === 'CASH');
     const creditBills = activeBills.filter((b) => b.paymentMethod === 'CREDIT');
     const chequeBills = activeBills.filter((b) => b.paymentMethod === 'CHEQUE');
 
     const totalCheque = chequeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
+    const totalCredit = activeBills.reduce((acc, b) => {
+      if (b.paymentMethod === 'CHEQUE') return acc;
+      return acc + (b.balanceAmount !== undefined ? b.balanceAmount : Math.max(0, (b.netTotal || 0) - (b.cashReceived || 0)));
+    }, 0);
 
     return {
       totalBills,

@@ -272,6 +272,7 @@ export interface DashboardStats {
   revenueToday: number;
   cashToday: number;
   creditToday: number;
+  chequesToday?: number;
   ordersTodayCount: number;
   lowStockCount: number;
   totalOutstanding: number;
@@ -295,6 +296,7 @@ export interface RepLiveStatus {
   todaySales: number;
   todayCash: number;
   todayCredit: number;
+  todayCheque?: number;
   todayBillsCount: number;
   dailyTarget: number;
   dailyAchievementPercentage: number;
@@ -388,6 +390,7 @@ export interface ProfitAndLossReport {
     totalFreeUnits: number;
     totalOrdersCount: number;
     cashCollected: number;
+    chequesCollected?: number;
     creditReceivables: number;
     totalExpenses: number;
     netOperatingProfit: number;
