@@ -21,6 +21,7 @@ import { Expenses } from './pages/Expenses';
 import { Settings } from './pages/Settings';
 import { Cheques } from './pages/Cheques';
 import { Manufacturing } from './pages/Manufacturing';
+import { HrPayroll } from './pages/HrPayroll';
 import { Login } from './pages/Login';
 import { RepMobilePortal } from './pages/RepMobilePortal';
 import { InvoiceModal } from './components/InvoiceModal';
@@ -162,6 +163,10 @@ export const AppContent: React.FC = () => {
 
           <div className={currentTab === 'customers' ? '' : 'hidden'}>
             <Customers onViewInvoice={(order) => setActiveInvoiceOrder(order)} />
+          </div>
+
+          <div className={currentTab === 'hr-payroll' ? '' : 'hidden'}>
+            <HrPayroll />
           </div>
 
           <div className={currentTab === 'cheques' ? '' : 'hidden'}>

@@ -21,7 +21,12 @@ import {
   LorryPerformanceReport,
   RepPerformanceReport,
   User,
-  RepTargetProgress
+  RepTargetProgress,
+  Employee,
+  Attendance,
+  SalaryAdvance,
+  Payroll,
+  HrPayrollSummary
 } from '../types';
 
 // Dynamic API URL: uses relative '/api' on Railway / production web,
@@ -369,5 +374,73 @@ export const BackupService = {
     api.post<{ success: boolean; message: string; importedCounts: Record<string, number> }>('/backup/import', payload).then(r => r.data),
   wipeDatabase: () =>
     api.post<{ success: boolean; message: string }>('/database/wipe-all').then(r => r.data)
+};
+
+export const HrService = {
+  // Employees
+  getEmployees: (params?: { department?: string; status?: string; search?: string }) =>
+    api.get<Employee[]>('/hr/employees', { params }).then(r => r.data),
+  getEmployeeById: (id: string) =>
+    api.get<Employee>(`/hr/employees/${id}`).then(r => r.data),
+  createEmployee: (data: Partial<Employee>) =>
+    api.post<Employee>('/hr/employees', data).then(r => r.data),
+  updateEmployee: (id: string, data: Partial<Employee>) =>
+    api.put<Employee>(`/hr/employees/${id}`, data).then(r => r.data),
+  deleteEmployee: (id: string) =>
+    api.delete<{ success: boolean; message: string }>(`/hr/employees/${id}`).then(r => r.data),
+
+  // Attendance
+  getAttendance: (params?: { date?: string; startDate?: string; endDate?: string; employeeId?: string; department?: string }) =>
+    api.get<Attendance[]>('/hr/attendance', { params }).then(r => r.data),
+  saveAttendance: (data: { employeeId: string; date: string; status: string; checkInTime?: string; checkOutTime?: string; otHours?: number; notes?: string }) =>
+    api.post<Attendance>('/hr/attendance', data).then(r => r.data),
+  bulkAttendance: (data: { records: Array<{ employeeId: string; status: string; otHours?: number; notes?: string }>; date: string }) =>
+    api.post<{ success: boolean; count: number }>('/hr/attendance/bulk', data).then(r => r.data),
+
+  // Salary Advances
+  getAdvances: (params?: { employeeId?: string; status?: string; month?: number; year?: number }) =>
+    api.get<SalaryAdvance[]>('/hr/advances', { params }).then(r => r.data),
+  createAdvance: (data: { employeeId: string; amount: number; date: string; reason?: string; paymentMethod?: string; notes?: string }) =>
+    api.post<SalaryAdvance>('/hr/advances', data).then(r => r.data),
+  deleteAdvance: (id: string) =>
+    api.delete<{ success: boolean; message: string }>(`/hr/advances/${id}`).then(r => r.data),
+
+  // Payroll
+  getPayrolls: (params?: { employeeId?: string; month?: number; year?: number; paymentStatus?: string }) =>
+    api.get<Payroll[]>('/hr/payroll', { params }).then(r => r.data),
+  getPayrollPreview: (employeeId: string, params: { month: number; year: number; customCommission?: number; customBonus?: number; customOtherDeductions?: number }) =>
+    api.get<any>(`/hr/payroll/preview/${employeeId}`, { params }).then(r => r.data),
+  generatePayroll: (data: {
+    employeeId: string;
+    month: number;
+    year: number;
+    workedDays?: number;
+    absentDays?: number;
+    leaveDays?: number;
+    otHours?: number;
+    basicSalary?: number;
+    otAmount?: number;
+    allowances?: number;
+    salesCommission?: number;
+    performanceBonus?: number;
+    advancesDeducted?: number;
+    epfDeduction?: number;
+    employerEpf?: number;
+    employerEtf?: number;
+    otherDeductions?: number;
+    paymentMethod?: string;
+    autoPayNow?: boolean;
+    notes?: string;
+  }) => api.post<Payroll>('/hr/payroll/generate', data).then(r => r.data),
+  getPayrollById: (id: string) =>
+    api.get<Payroll>(`/hr/payroll/${id}`).then(r => r.data),
+  updatePayrollStatus: (id: string, data: { paymentStatus: 'APPROVED' | 'PAID'; paymentMethod?: string; paidAt?: string }) =>
+    api.put<Payroll>(`/hr/payroll/${id}/status`, data).then(r => r.data),
+  deletePayroll: (id: string) =>
+    api.delete<{ success: boolean; message: string }>(`/hr/payroll/${id}`).then(r => r.data),
+
+  // Summary
+  getSummary: () =>
+    api.get<HrPayrollSummary>('/hr/summary').then(r => r.data)
 };
 

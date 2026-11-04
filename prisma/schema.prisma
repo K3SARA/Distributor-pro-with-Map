@@ -413,3 +413,122 @@ model User {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
+
+// --------------------------------------------------------
+// 10. HR & PAYROLL MANAGEMENT (EMPLOYEES, ATTENDANCE, ADVANCES, PAYROLL)
+// --------------------------------------------------------
+model Employee {
+  id              String          @id @default(uuid())
+  employeeNumber  String          @unique // e.g. "EMP-001"
+  fullName        String
+  callingName     String?         // Familiar name e.g. "Kamal"
+  nicNumber       String?         // National ID / NIC
+  phone           String
+  address         String?
+  designation     String          // "Sales Rep", "Lorry Driver", "Head Baker", "Warehouse Staff", "Office Assistant"
+  department      String          @default("SALES_FLEET") // "SALES_FLEET", "WAREHOUSE", "MANUFACTURING", "ADMIN"
+  employmentType  String          @default("FULL_TIME") // "FULL_TIME", "DAILY_WAGE", "CONTRACT"
+  joinDate        DateTime        @default(now())
+  status          String          @default("ACTIVE") // "ACTIVE", "INACTIVE", "TERMINATED"
+
+  // Base Pay & Rates
+  basicSalary     Float           @default(0.0) // Monthly basic salary
+  dailyRate       Float           @default(0.0) // Daily wage if daily paid
+  otHourlyRate    Float           @default(0.0) // Hourly overtime rate
+  allowances      Float           @default(0.0) // Fixed allowances (Transport, Food, Attendance)
+  commissionRate  Float           @default(0.0) // Sales commission % (e.g. 1.5% of monthly route sales)
+
+  // Bank & Statutory Information
+  bankName        String?
+  branchName      String?
+  accountNumber   String?
+  epfNumber       String?
+
+  // System Cross-Wiring
+  userId          String?         // Mapped to system User ID (for Sales Reps)
+  lorryId         String?         // Mapped to vehicle (for Drivers / Reps)
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  attendances     Attendance[]
+  salaryAdvances  SalaryAdvance[]
+  payrolls        Payroll[]
+}
+
+model Attendance {
+  id           String    @id @default(uuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime  @default(now()) // Midnight ISO date
+  status       String    @default("PRESENT") // "PRESENT", "HALF_DAY", "ABSENT", "LEAVE"
+  checkInTime  String?   // e.g. "08:00"
+  checkOutTime String?   // e.g. "17:30"
+  otHours      Float     @default(0.0)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model SalaryAdvance {
+  id            String    @id @default(uuid())
+  advanceNumber String    @unique // e.g. "ADV-202611-0001"
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  amount        Float
+  date          DateTime  @default(now())
+  reason        String?
+  paymentMethod String    @default("CASH") // "CASH", "BANK_TRANSFER"
+  status        String    @default("DEDUCTED") // "PENDING", "DEDUCTED", "CANCELLED"
+  payrollId     String?
+  payroll       Payroll?  @relation(fields: [payrollId], references: [id], onDelete: SetNull)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payroll {
+  id               String          @id @default(uuid())
+  payslipNumber    String          @unique // e.g. "PAY-202611-0001"
+  employeeId       String
+  employee         Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month            Int             // 1-12
+  year             Int             // e.g. 2026
+
+  // Attendance metrics
+  workedDays       Int             @default(0)
+  absentDays       Int             @default(0)
+  leaveDays        Int             @default(0)
+  otHours          Float           @default(0.0)
+
+  // Earnings
+  basicSalary      Float           @default(0.0)
+  otAmount         Float           @default(0.0)
+  allowances       Float           @default(0.0)
+  salesCommission  Float           @default(0.0) // Auto-calculated from Lorry sales
+  performanceBonus Float           @default(0.0)
+  grossEarnings    Float           @default(0.0)
+
+  // Deductions
+  advancesDeducted Float           @default(0.0) // Auto-aggregated from SalaryAdvance
+  epfDeduction     Float           @default(0.0) // EPF 8%
+  employerEpf      Float           @default(0.0) // Employer EPF 12%
+  employerEtf      Float           @default(0.0) // Employer ETF 3%
+  otherDeductions  Float           @default(0.0)
+  totalDeductions  Float           @default(0.0)
+
+  // Net Pay
+  netPayable       Float           @default(0.0)
+
+  paymentStatus    String          @default("PAID") // "DRAFT", "APPROVED", "PAID"
+  paymentMethod    String          @default("CASH") // "CASH", "BANK_TRANSFER", "CHEQUE"
+  paidAt           DateTime?
+  expenseId        String?         // Synced to business Expense entry
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  salaryAdvances   SalaryAdvance[]
+}

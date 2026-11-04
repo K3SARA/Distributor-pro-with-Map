@@ -16,6 +16,7 @@ import {
   Building2,
   Factory,
   CreditCard,
+  Briefcase,
   LogOut,
   X
 } from 'lucide-react';
@@ -74,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'Finance & Management',
       items: [
         { id: 'customers', label: 'Clients & Accounts', icon: Users },
+        { id: 'hr-payroll', label: 'HR & Payroll', icon: Briefcase, badge: 'Staff', badgeTone: 'pnl' },
         { id: 'cheques', label: 'Cheque Management', icon: CreditCard, badge: 'PDC', badgeTone: 'inward' },
         { id: 'expenses', label: 'Expenses & Opex', icon: TrendingDown, badge: 'Outflow', badgeTone: 'expense' },
         { id: 'pnl', label: 'Profit & Loss', icon: TrendingUp, badge: 'P&L', badgeTone: 'pnl' },

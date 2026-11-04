@@ -5212,6 +5212,957 @@ app.get('/api/manufacturing/summary', async (_req: Request, res: Response) => {
 // ========================================================
 // 8. GENERAL & BUSINESS SETTINGS
 // ========================================================
+// ========================================================
+// 12. HR & PAYROLL MANAGEMENT (EMPLOYEES, ATTENDANCE, ADVANCES, PAYROLL)
+// ========================================================
+
+// 12.1 EMPLOYEES DIRECTORY
+app.get('/api/hr/employees', async (req: Request, res: Response) => {
+  try {
+    const { department, status, search } = req.query;
+    const where: any = {};
+
+    if (department && department !== 'ALL') {
+      where.department = department;
+    }
+
+    if (status && status !== 'ALL') {
+      where.status = status;
+    }
+
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const q = search.trim();
+      where.OR = [
+        { fullName: { contains: q } },
+        { callingName: { contains: q } },
+        { employeeNumber: { contains: q } },
+        { nicNumber: { contains: q } },
+        { phone: { contains: q } },
+        { designation: { contains: q } }
+      ];
+    }
+
+    const employees = await prisma.employee.findMany({
+      where,
+      orderBy: { employeeNumber: 'asc' },
+      include: {
+        salaryAdvances: {
+          where: { status: 'PENDING' }
+        }
+      }
+    });
+
+    res.json(employees);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/hr/employees/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const employee = await prisma.employee.findUniqueOrThrow({
+      where: { id },
+      include: {
+        attendances: {
+          take: 31,
+          orderBy: { date: 'desc' }
+        },
+        salaryAdvances: {
+          orderBy: { date: 'desc' }
+        },
+        payrolls: {
+          take: 12,
+          orderBy: { createdAt: 'desc' }
+        }
+      }
+    });
+    res.json(employee);
+  } catch (error: any) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+app.post('/api/hr/employees', async (req: Request, res: Response) => {
+  try {
+    const {
+      fullName,
+      callingName,
+      nicNumber,
+      phone,
+      address,
+      designation,
+      department,
+      employmentType,
+      joinDate,
+      basicSalary,
+      dailyRate,
+      otHourlyRate,
+      allowances,
+      commissionRate,
+      bankName,
+      branchName,
+      accountNumber,
+      epfNumber,
+      userId,
+      lorryId,
+      notes
+    } = req.body;
+
+    if (!fullName || !fullName.trim()) {
+      return res.status(400).json({ error: 'Full name is required.' });
+    }
+    if (!phone || !phone.trim()) {
+      return res.status(400).json({ error: 'Phone number is required.' });
+    }
+    if (!designation || !designation.trim()) {
+      return res.status(400).json({ error: 'Designation / job role is required.' });
+    }
+
+    // Auto-generate employee number EMP-001, EMP-002...
+    const countTotal = await prisma.employee.count();
+    const employeeNumber = `EMP-${(countTotal + 1).toString().padStart(3, '0')}`;
+
+    const newEmployee = await prisma.employee.create({
+      data: {
+        employeeNumber,
+        fullName: fullName.trim(),
+        callingName: callingName?.trim() || null,
+        nicNumber: nicNumber?.trim() || null,
+        phone: phone.trim(),
+        address: address?.trim() || null,
+        designation: designation.trim(),
+        department: department || 'SALES_FLEET',
+        employmentType: employmentType || 'FULL_TIME',
+        joinDate: joinDate ? new Date(joinDate) : new Date(),
+        status: 'ACTIVE',
+        basicSalary: parseFloat(basicSalary) || 0.0,
+        dailyRate: parseFloat(dailyRate) || 0.0,
+        otHourlyRate: parseFloat(otHourlyRate) || 0.0,
+        allowances: parseFloat(allowances) || 0.0,
+        commissionRate: parseFloat(commissionRate) || 0.0,
+        bankName: bankName?.trim() || null,
+        branchName: branchName?.trim() || null,
+        accountNumber: accountNumber?.trim() || null,
+        epfNumber: epfNumber?.trim() || null,
+        userId: userId || null,
+        lorryId: lorryId || null,
+        notes: notes?.trim() || null
+      }
+    });
+
+    res.status(201).json(newEmployee);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/hr/employees/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      fullName,
+      callingName,
+      nicNumber,
+      phone,
+      address,
+      designation,
+      department,
+      employmentType,
+      joinDate,
+      status,
+      basicSalary,
+      dailyRate,
+      otHourlyRate,
+      allowances,
+      commissionRate,
+      bankName,
+      branchName,
+      accountNumber,
+      epfNumber,
+      userId,
+      lorryId,
+      notes
+    } = req.body;
+
+    const updated = await prisma.employee.update({
+      where: { id },
+      data: {
+        fullName: fullName !== undefined ? fullName.trim() : undefined,
+        callingName: callingName !== undefined ? callingName.trim() : undefined,
+        nicNumber: nicNumber !== undefined ? nicNumber.trim() : undefined,
+        phone: phone !== undefined ? phone.trim() : undefined,
+        address: address !== undefined ? address.trim() : undefined,
+        designation: designation !== undefined ? designation.trim() : undefined,
+        department: department !== undefined ? department : undefined,
+        employmentType: employmentType !== undefined ? employmentType : undefined,
+        joinDate: joinDate ? new Date(joinDate) : undefined,
+        status: status !== undefined ? status : undefined,
+        basicSalary: basicSalary !== undefined ? parseFloat(basicSalary) : undefined,
+        dailyRate: dailyRate !== undefined ? parseFloat(dailyRate) : undefined,
+        otHourlyRate: otHourlyRate !== undefined ? parseFloat(otHourlyRate) : undefined,
+        allowances: allowances !== undefined ? parseFloat(allowances) : undefined,
+        commissionRate: commissionRate !== undefined ? parseFloat(commissionRate) : undefined,
+        bankName: bankName !== undefined ? bankName.trim() : undefined,
+        branchName: branchName !== undefined ? branchName.trim() : undefined,
+        accountNumber: accountNumber !== undefined ? accountNumber.trim() : undefined,
+        epfNumber: epfNumber !== undefined ? epfNumber.trim() : undefined,
+        userId: userId !== undefined ? userId : undefined,
+        lorryId: lorryId !== undefined ? lorryId : undefined,
+        notes: notes !== undefined ? notes.trim() : undefined
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/hr/employees/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const payrollCount = await prisma.payroll.count({ where: { employeeId: id } });
+
+    if (payrollCount > 0) {
+      // Soft-delete to preserve payroll audit history
+      const updated = await prisma.employee.update({
+        where: { id },
+        data: { status: 'TERMINATED' }
+      });
+      return res.json({ message: `Employee record archived and set to TERMINATED due to existing payroll history.`, employee: updated });
+    }
+
+    await prisma.employee.delete({ where: { id } });
+    res.json({ message: 'Employee deleted successfully.' });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 12.2 DAILY ATTENDANCE
+app.get('/api/hr/attendance', async (req: Request, res: Response) => {
+  try {
+    const { date } = req.query;
+    const targetDate = date ? new Date(date as string) : new Date();
+    targetDate.setHours(0, 0, 0, 0);
+
+    const nextDate = new Date(targetDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+
+    const [activeEmployees, attendances] = await Promise.all([
+      prisma.employee.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { employeeNumber: 'asc' }
+      }),
+      prisma.attendance.findMany({
+        where: {
+          date: {
+            gte: targetDate,
+            lt: nextDate
+          }
+        },
+        include: { employee: true }
+      })
+    ]);
+
+    // Merge so every active employee has an entry for the day (marked or pending)
+    const attendanceMap = new Map<string, any>(attendances.map((a: any) => [a.employeeId, a]));
+    const merged = activeEmployees.map((emp: any) => {
+      const record = attendanceMap.get(emp.id);
+      return {
+        employeeId: emp.id,
+        employee: emp,
+        attendanceId: record?.id || null,
+        date: targetDate.toISOString(),
+        status: record?.status || 'PENDING',
+        checkInTime: record?.checkInTime || '',
+        checkOutTime: record?.checkOutTime || '',
+        otHours: record?.otHours || 0.0,
+        notes: record?.notes || ''
+      };
+    });
+
+    res.json({
+      date: targetDate.toISOString(),
+      attendances: merged,
+      summary: {
+        total: activeEmployees.length,
+        present: attendances.filter((a: any) => a.status === 'PRESENT').length,
+        halfDay: attendances.filter((a: any) => a.status === 'HALF_DAY').length,
+        absent: attendances.filter((a: any) => a.status === 'ABSENT').length,
+        leave: attendances.filter((a: any) => a.status === 'LEAVE').length,
+        unmarked: activeEmployees.length - attendances.length
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/hr/attendance', async (req: Request, res: Response) => {
+  try {
+    const { employeeId, date, status, checkInTime, checkOutTime, otHours, notes } = req.body;
+
+    if (!employeeId) {
+      return res.status(400).json({ error: 'Employee ID is required.' });
+    }
+
+    const attendanceDate = date ? new Date(date) : new Date();
+    attendanceDate.setHours(0, 0, 0, 0);
+
+    const record = await prisma.attendance.upsert({
+      where: {
+        employeeId_date: {
+          employeeId,
+          date: attendanceDate
+        }
+      },
+      update: {
+        status: status || 'PRESENT',
+        checkInTime: checkInTime || null,
+        checkOutTime: checkOutTime || null,
+        otHours: parseFloat(otHours) || 0.0,
+        notes: notes !== undefined ? notes : undefined
+      },
+      create: {
+        employeeId,
+        date: attendanceDate,
+        status: status || 'PRESENT',
+        checkInTime: checkInTime || null,
+        checkOutTime: checkOutTime || null,
+        otHours: parseFloat(otHours) || 0.0,
+        notes: notes || null
+      },
+      include: { employee: true }
+    });
+
+    res.json(record);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/hr/attendance/bulk', async (req: Request, res: Response) => {
+  try {
+    const { date, records, markAllPresent } = req.body;
+    const attendanceDate = date ? new Date(date) : new Date();
+    attendanceDate.setHours(0, 0, 0, 0);
+
+    let rowsToProcess = records;
+
+    if (markAllPresent) {
+      const activeEmployees = await prisma.employee.findMany({
+        where: { status: 'ACTIVE' }
+      });
+      rowsToProcess = activeEmployees.map((emp: any) => ({
+        employeeId: emp.id,
+        status: 'PRESENT',
+        otHours: 0,
+        notes: 'Bulk marked present'
+      }));
+    }
+
+    if (!Array.isArray(rowsToProcess) || rowsToProcess.length === 0) {
+      return res.status(400).json({ error: 'No attendance records provided.' });
+    }
+
+    const saved: any[] = [];
+    for (const r of rowsToProcess) {
+      if (!r.employeeId) continue;
+      const rec = await prisma.attendance.upsert({
+        where: {
+          employeeId_date: {
+            employeeId: r.employeeId,
+            date: attendanceDate
+          }
+        },
+        update: {
+          status: r.status || 'PRESENT',
+          checkInTime: r.checkInTime || null,
+          checkOutTime: r.checkOutTime || null,
+          otHours: parseFloat(r.otHours) || 0.0,
+          notes: r.notes || null
+        },
+        create: {
+          employeeId: r.employeeId,
+          date: attendanceDate,
+          status: r.status || 'PRESENT',
+          checkInTime: r.checkInTime || null,
+          checkOutTime: r.checkOutTime || null,
+          otHours: parseFloat(r.otHours) || 0.0,
+          notes: r.notes || null
+        }
+      });
+      saved.push(rec);
+    }
+
+    res.json({ message: `Successfully recorded attendance for ${saved.length} employees.`, count: saved.length });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 12.3 SALARY ADVANCES (WIRED TO OPEX & PAYROLL)
+app.get('/api/hr/advances', async (req: Request, res: Response) => {
+  try {
+    const { employeeId, status } = req.query;
+    const where: any = {};
+
+    if (employeeId && employeeId !== 'ALL') {
+      where.employeeId = employeeId;
+    }
+
+    if (status && status !== 'ALL') {
+      where.status = status;
+    }
+
+    const advances = await prisma.salaryAdvance.findMany({
+      where,
+      include: { employee: true, payroll: true },
+      orderBy: { date: 'desc' }
+    });
+
+    res.json(advances);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/hr/advances', async (req: Request, res: Response) => {
+  try {
+    const { employeeId, amount, date, reason, paymentMethod, notes, syncToExpense = true } = req.body;
+
+    const advAmount = parseFloat(amount);
+    if (!employeeId || isNaN(advAmount) || advAmount <= 0) {
+      return res.status(400).json({ error: 'Valid employee and positive advance amount required.' });
+    }
+
+    const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const countTotal = await prisma.salaryAdvance.count();
+    const advanceNumber = `ADV-${todayStr}-${(countTotal + 1).toString().padStart(4, '0')}`;
+    const advanceDate = date ? new Date(date) : new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Create Salary Advance Record
+      const newAdvance = await tx.salaryAdvance.create({
+        data: {
+          advanceNumber,
+          employeeId,
+          amount: advAmount,
+          date: advanceDate,
+          reason: reason?.trim() || 'Mid-month cash advance',
+          paymentMethod: paymentMethod || 'CASH',
+          status: 'PENDING',
+          notes: notes?.trim() || null
+        },
+        include: { employee: true }
+      });
+
+      // 2. WIRED TO WHOLE APP: Auto-create Expense entry under SALARIES so cash outflow is tracked immediately
+      if (syncToExpense) {
+        const countExpensesToday = await tx.expense.count({
+          where: {
+            createdAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0))
+            }
+          }
+        });
+        const expenseNumber = `EXP-${todayStr}-${(countExpensesToday + 1).toString().padStart(4, '0')}`;
+
+        await tx.expense.create({
+          data: {
+            expenseNumber,
+            category: 'SALARIES',
+            title: `Salary Advance: ${employee.fullName} (${advanceNumber})`,
+            amount: advAmount,
+            date: advanceDate,
+            paymentMethod: paymentMethod || 'CASH',
+            referenceNumber: advanceNumber,
+            paidTo: employee.fullName,
+            notes: `Salary advance issued to ${employee.designation} ${employee.fullName}. Reason: ${reason || 'N/A'}`,
+            lorryId: employee.lorryId || null
+          }
+        });
+      }
+
+      return newAdvance;
+    });
+
+    res.status(201).json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/hr/advances/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const advance = await prisma.salaryAdvance.findUniqueOrThrow({ where: { id } });
+
+    if (advance.status === 'DEDUCTED') {
+      return res.status(400).json({ error: 'Cannot delete advance that has already been deducted in a settled payroll.' });
+    }
+
+    // Delete advance and any auto-created expense linked via referenceNumber
+    await prisma.$transaction(async (tx) => {
+      await tx.expense.deleteMany({
+        where: { referenceNumber: advance.advanceNumber }
+      });
+      await tx.salaryAdvance.delete({ where: { id } });
+    });
+
+    res.json({ message: `Salary advance ${advance.advanceNumber} voided successfully.` });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 12.4 PAYROLL PROCESSING & AUTOMATIC COMMISSION / EXPENSE WIRING
+app.get('/api/hr/payroll', async (req: Request, res: Response) => {
+  try {
+    const { month, year, employeeId } = req.query;
+    const where: any = {};
+
+    if (month) where.month = parseInt(month as string, 10);
+    if (year) where.year = parseInt(year as string, 10);
+    if (employeeId && employeeId !== 'ALL') where.employeeId = employeeId;
+
+    const payrolls = await prisma.payroll.findMany({
+      where,
+      include: {
+        employee: true,
+        salaryAdvances: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(payrolls);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PREVIEW SALARY CALCULATION FOR AN EMPLOYEE BEFORE FINALIZING
+app.get('/api/hr/payroll/preview/:employeeId', async (req: Request, res: Response) => {
+  try {
+    const { employeeId } = req.params;
+    const month = req.query.month ? parseInt(req.query.month as string, 10) : new Date().getMonth() + 1;
+    const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear();
+
+    const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+
+    // Date bounds for the month
+    const startOfMonth = new Date(year, month - 1, 1);
+    const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+
+    // 1. Attendance aggregation
+    const attendances = await prisma.attendance.findMany({
+      where: {
+        employeeId,
+        date: { gte: startOfMonth, lte: endOfMonth }
+      }
+    });
+
+    const workedDays = attendances.filter((a: any) => a.status === 'PRESENT').length + (attendances.filter((a: any) => a.status === 'HALF_DAY').length * 0.5);
+    const absentDays = attendances.filter((a: any) => a.status === 'ABSENT').length;
+    const leaveDays = attendances.filter((a: any) => a.status === 'LEAVE').length;
+    const totalOtHours = attendances.reduce((acc: number, a: any) => acc + (a.otHours || 0), 0);
+
+    // 2. Earnings calculation
+    let basicSalary = employee.basicSalary;
+    if (employee.employmentType === 'DAILY_WAGE' && employee.dailyRate > 0) {
+      basicSalary = employee.dailyRate * workedDays;
+    }
+
+    const otAmount = totalOtHours * (employee.otHourlyRate || 0);
+    const allowances = employee.allowances || 0;
+
+    // 3. Sales Rep Commission Cross-Wiring
+    let salesCommission = 0;
+    let monthlySalesTotal = 0;
+    if (employee.commissionRate > 0 && (employee.lorryId || employee.userId)) {
+      const orderWhere: any = {
+        status: { not: 'CANCELLED' },
+        createdAt: { gte: startOfMonth, lte: endOfMonth }
+      };
+      if (employee.lorryId) {
+        orderWhere.lorryId = employee.lorryId;
+      }
+
+      const deliveredOrders = await prisma.order.findMany({
+        where: orderWhere,
+        select: { netTotal: true }
+      });
+
+      monthlySalesTotal = deliveredOrders.reduce((acc: number, o: any) => acc + o.netTotal, 0);
+      salesCommission = Math.round((monthlySalesTotal * employee.commissionRate) / 100);
+    }
+
+    const grossEarnings = basicSalary + otAmount + allowances + salesCommission;
+
+    // 4. Pending Salary Advances to deduct
+    const pendingAdvances = await prisma.salaryAdvance.findMany({
+      where: {
+        employeeId,
+        status: 'PENDING',
+        date: { lte: endOfMonth }
+      }
+    });
+    const advancesDeducted = pendingAdvances.reduce((acc: number, adv: any) => acc + adv.amount, 0);
+
+    // 5. Statutory EPF / ETF (Sri Lankan standard)
+    // Employee EPF: 8% of Basic
+    // Employer EPF: 12% of Basic
+    // Employer ETF: 3% of Basic
+    const epfDeduction = employee.employmentType === 'FULL_TIME' ? Math.round(basicSalary * 0.08) : 0;
+    const employerEpf = employee.employmentType === 'FULL_TIME' ? Math.round(basicSalary * 0.12) : 0;
+    const employerEtf = employee.employmentType === 'FULL_TIME' ? Math.round(basicSalary * 0.03) : 0;
+
+    const totalDeductions = advancesDeducted + epfDeduction;
+    const netPayable = Math.max(0, grossEarnings - totalDeductions);
+
+    res.json({
+      employee,
+      period: { month, year },
+      workedDays,
+      absentDays,
+      leaveDays,
+      otHours: totalOtHours,
+      basicSalary,
+      otAmount,
+      allowances,
+      monthlySalesTotal,
+      commissionRate: employee.commissionRate,
+      salesCommission,
+      grossEarnings,
+      advancesDeducted,
+      pendingAdvances,
+      epfDeduction,
+      employerEpf,
+      employerEtf,
+      otherDeductions: 0,
+      totalDeductions,
+      netPayable
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/hr/payroll/generate', async (req: Request, res: Response) => {
+  try {
+    const {
+      employeeId,
+      month,
+      year,
+      workedDays,
+      absentDays,
+      leaveDays,
+      otHours,
+      basicSalary,
+      otAmount,
+      allowances,
+      salesCommission,
+      performanceBonus,
+      otherDeductions,
+      paymentMethod = 'CASH',
+      paymentStatus = 'PAID',
+      notes,
+      syncToExpense = true
+    } = req.body;
+
+    if (!employeeId || !month || !year) {
+      return res.status(400).json({ error: 'Employee, month, and year are required.' });
+    }
+
+    const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+
+    // Check if payroll already exists for this employee for this month/year
+    const existing = await prisma.payroll.findFirst({
+      where: { employeeId, month: parseInt(month, 10), year: parseInt(year, 10) }
+    });
+    if (existing) {
+      return res.status(400).json({ error: `Payslip already generated for ${employee.fullName} for ${month}/${year} (${existing.payslipNumber}).` });
+    }
+
+    const parsedMonth = parseInt(month, 10);
+    const parsedYear = parseInt(year, 10);
+    const endOfMonth = new Date(parsedYear, parsedMonth, 0, 23, 59, 59, 999);
+
+    const bSalary = parseFloat(basicSalary) || employee.basicSalary;
+    const ot = parseFloat(otAmount) || 0;
+    const allow = parseFloat(allowances) || 0;
+    const comm = parseFloat(salesCommission) || 0;
+    const bonus = parseFloat(performanceBonus) || 0;
+    const otherDed = parseFloat(otherDeductions) || 0;
+
+    const grossEarnings = bSalary + ot + allow + comm + bonus;
+
+    // Find and deduct unsettled advances
+    const pendingAdvances = await prisma.salaryAdvance.findMany({
+      where: {
+        employeeId,
+        status: 'PENDING',
+        date: { lte: endOfMonth }
+      }
+    });
+    const advancesDeducted = pendingAdvances.reduce((acc: number, a: any) => acc + a.amount, 0);
+
+    const epfDeduction = employee.employmentType === 'FULL_TIME' ? Math.round(bSalary * 0.08) : 0;
+    const employerEpf = employee.employmentType === 'FULL_TIME' ? Math.round(bSalary * 0.12) : 0;
+    const employerEtf = employee.employmentType === 'FULL_TIME' ? Math.round(bSalary * 0.03) : 0;
+
+    const totalDeductions = advancesDeducted + epfDeduction + otherDed;
+    const netPayable = Math.max(0, grossEarnings - totalDeductions);
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const countTotal = await prisma.payroll.count();
+    const payslipNumber = `PAY-${parsedYear}${parsedMonth.toString().padStart(2, '0')}-${(countTotal + 1).toString().padStart(4, '0')}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Create Payroll record
+      const payroll = await tx.payroll.create({
+        data: {
+          payslipNumber,
+          employeeId,
+          month: parsedMonth,
+          year: parsedYear,
+          workedDays: parseInt(workedDays, 10) || 0,
+          absentDays: parseInt(absentDays, 10) || 0,
+          leaveDays: parseInt(leaveDays, 10) || 0,
+          otHours: parseFloat(otHours) || 0.0,
+          basicSalary: bSalary,
+          otAmount: ot,
+          allowances: allow,
+          salesCommission: comm,
+          performanceBonus: bonus,
+          grossEarnings,
+          advancesDeducted,
+          epfDeduction,
+          employerEpf,
+          employerEtf,
+          otherDeductions: otherDed,
+          totalDeductions,
+          netPayable,
+          paymentStatus,
+          paymentMethod,
+          paidAt: paymentStatus === 'PAID' ? new Date() : null,
+          notes: notes?.trim() || null
+        },
+        include: { employee: true }
+      });
+
+      // 2. Mark pending advances as DEDUCTED and link to this payroll
+      if (pendingAdvances.length > 0) {
+        await tx.salaryAdvance.updateMany({
+          where: { id: { in: pendingAdvances.map((a: any) => a.id) } },
+          data: {
+            status: 'DEDUCTED',
+            payrollId: payroll.id
+          }
+        });
+      }
+
+      // 3. WIRED TO WHOLE APP: Auto-create business Expense if PAID
+      if (paymentStatus === 'PAID' && syncToExpense && netPayable > 0) {
+        const countTodayExp = await tx.expense.count({
+          where: {
+            createdAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0))
+            }
+          }
+        });
+        const expenseNumber = `EXP-${dateStr}-${(countTodayExp + 1).toString().padStart(4, '0')}`;
+
+        const createdExpense = await tx.expense.create({
+          data: {
+            expenseNumber,
+            category: 'SALARIES',
+            title: `Salary: ${employee.fullName} (${parsedMonth}/${parsedYear})`,
+            amount: netPayable,
+            date: new Date(),
+            paymentMethod,
+            referenceNumber: payslipNumber,
+            paidTo: employee.fullName,
+            notes: `Monthly payroll ${payslipNumber} for ${employee.designation} ${employee.fullName}. Basic: ${bSalary}, Net: ${netPayable}`,
+            lorryId: employee.lorryId || null
+          }
+        });
+
+        await tx.payroll.update({
+          where: { id: payroll.id },
+          data: { expenseId: createdExpense.id }
+        });
+      }
+
+      return payroll;
+    });
+
+    res.status(201).json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/hr/payroll/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const payroll = await prisma.payroll.findUniqueOrThrow({
+      where: { id },
+      include: {
+        employee: true,
+        salaryAdvances: true
+      }
+    });
+    res.json(payroll);
+  } catch (error: any) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+app.put('/api/hr/payroll/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, paymentMethod } = req.body;
+
+    const existing = await prisma.payroll.findUniqueOrThrow({
+      where: { id },
+      include: { employee: true }
+    });
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const payroll = await tx.payroll.update({
+        where: { id },
+        data: {
+          paymentStatus: status,
+          paymentMethod: paymentMethod || existing.paymentMethod,
+          paidAt: status === 'PAID' ? new Date() : existing.paidAt
+        },
+        include: { employee: true }
+      });
+
+      // If transitioning to PAID and no expense exists yet, create OPEX record
+      if (status === 'PAID' && !existing.expenseId && existing.netPayable > 0) {
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const countTodayExp = await tx.expense.count({
+          where: {
+            createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) }
+          }
+        });
+        const expenseNumber = `EXP-${dateStr}-${(countTodayExp + 1).toString().padStart(4, '0')}`;
+
+        const createdExpense = await tx.expense.create({
+          data: {
+            expenseNumber,
+            category: 'SALARIES',
+            title: `Salary: ${existing.employee.fullName} (${existing.month}/${existing.year})`,
+            amount: existing.netPayable,
+            date: new Date(),
+            paymentMethod: paymentMethod || existing.paymentMethod || 'CASH',
+            referenceNumber: existing.payslipNumber,
+            paidTo: existing.employee.fullName,
+            notes: `Payslip ${existing.payslipNumber} settled.`,
+            lorryId: existing.employee.lorryId || null
+          }
+        });
+
+        await tx.payroll.update({
+          where: { id },
+          data: { expenseId: createdExpense.id }
+        });
+      }
+
+      return payroll;
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/hr/payroll/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const payroll = await prisma.payroll.findUniqueOrThrow({ where: { id } });
+
+    await prisma.$transaction(async (tx) => {
+      // Revert attached salary advances back to PENDING so they can be re-deducted
+      await tx.salaryAdvance.updateMany({
+        where: { payrollId: id },
+        data: {
+          status: 'PENDING',
+          payrollId: null
+        }
+      });
+
+      // Remove auto-created expense if exists
+      if (payroll.expenseId) {
+        await tx.expense.deleteMany({ where: { id: payroll.expenseId } });
+      }
+      await tx.expense.deleteMany({ where: { referenceNumber: payroll.payslipNumber } });
+
+      await tx.payroll.delete({ where: { id } });
+    });
+
+    res.json({ message: `Payslip ${payroll.payslipNumber} deleted. Attached salary advances unlinked back to PENDING.` });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// 12.5 HR DASHBOARD SUMMARY
+app.get('/api/hr/summary', async (_req: Request, res: Response) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+
+    const [employees, todayAttendances, pendingAdvances, monthPayrolls] = await Promise.all([
+      prisma.employee.findMany(),
+      prisma.attendance.findMany({
+        where: { date: { gte: today, lt: tomorrow } }
+      }),
+      prisma.salaryAdvance.findMany({
+        where: { status: 'PENDING' }
+      }),
+      prisma.payroll.findMany({
+        where: { month: currentMonth, year: currentYear }
+      })
+    ]);
+
+    const activeEmployees = employees.filter((e: any) => e.status === 'ACTIVE');
+    const todayPresentCount = todayAttendances.filter((a: any) => a.status === 'PRESENT').length;
+    const todayAbsentCount = todayAttendances.filter((a: any) => a.status === 'ABSENT').length;
+    const pendingAdvancesTotal = pendingAdvances.reduce((acc: number, a: any) => acc + a.amount, 0);
+    const currentMonthPayrollTotal = monthPayrolls.reduce((acc: number, p: any) => acc + p.netPayable, 0);
+
+    const departmentCounts: Record<string, number> = {};
+    for (const e of activeEmployees) {
+      departmentCounts[e.department] = (departmentCounts[e.department] || 0) + 1;
+    }
+
+    res.json({
+      totalEmployees: employees.length,
+      activeEmployees: activeEmployees.length,
+      todayPresentCount,
+      todayAbsentCount,
+      pendingAdvancesTotal,
+      currentMonthPayrollTotal,
+      departmentCounts
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const SETTINGS_FILE = path.join(__dirname, '../settings.json');
 
 const defaultSettings = {
@@ -5292,6 +6243,106 @@ async function seedIfEmpty() {
         }
       });
       console.log('[System Init] Default admin user initialized: admin / admin123');
+    }
+
+    const employeeCount = await prisma.employee.count();
+    if (employeeCount === 0) {
+      console.log('[System Init] Clean employee database detected. Initializing staff records...');
+      const firstLorry = await prisma.lorry.findFirst();
+      const firstRepUser = await prisma.user.findFirst({ where: { role: 'REP' } });
+
+      await prisma.employee.createMany({
+        data: [
+          {
+            employeeNumber: 'EMP-001',
+            fullName: 'Sunimal Perera',
+            callingName: 'Sunimal',
+            nicNumber: '198824501234',
+            phone: '+94 77 123 4567',
+            address: '45, Kandy Road, Kadugannawa',
+            designation: 'Route Sales Representative',
+            department: 'SALES_FLEET',
+            employmentType: 'FULL_TIME',
+            basicSalary: 45000.0,
+            dailyRate: 0.0,
+            otHourlyRate: 350.0,
+            allowances: 8000.0,
+            commissionRate: 1.5,
+            bankName: 'Commercial Bank',
+            branchName: 'Kandy',
+            accountNumber: '8004123890',
+            epfNumber: 'EPF-88241',
+            userId: firstRepUser?.id || null,
+            lorryId: firstLorry?.id || null,
+            notes: 'Senior route sales rep for city bread runs'
+          },
+          {
+            employeeNumber: 'EMP-002',
+            fullName: 'Nimal Bandara',
+            callingName: 'Nimal',
+            nicNumber: '198514506789',
+            phone: '+94 71 987 6543',
+            address: '12, Main Street, Mawanella',
+            designation: 'Distribution Lorry Driver',
+            department: 'SALES_FLEET',
+            employmentType: 'FULL_TIME',
+            basicSalary: 40000.0,
+            dailyRate: 0.0,
+            otHourlyRate: 300.0,
+            allowances: 6000.0,
+            commissionRate: 0.5,
+            bankName: 'People\'s Bank',
+            branchName: 'Mawanella',
+            accountNumber: '2045612345',
+            epfNumber: 'EPF-85145',
+            lorryId: firstLorry?.id || null,
+            notes: 'Heavy vehicle licensed driver'
+          },
+          {
+            employeeNumber: 'EMP-003',
+            fullName: 'Chaminda Silva',
+            callingName: 'Chaminda',
+            nicNumber: '199021503456',
+            phone: '+94 76 543 2109',
+            address: '88, Temple Road, Pilimathalawa',
+            designation: 'Head Master Baker',
+            department: 'MANUFACTURING',
+            employmentType: 'FULL_TIME',
+            basicSalary: 55000.0,
+            dailyRate: 0.0,
+            otHourlyRate: 400.0,
+            allowances: 5000.0,
+            commissionRate: 0.0,
+            bankName: 'Bank of Ceylon',
+            branchName: 'Pilimathalawa',
+            accountNumber: '7012345678',
+            epfNumber: 'EPF-90215',
+            notes: 'Bakery production and recipe manager'
+          },
+          {
+            employeeNumber: 'EMP-004',
+            fullName: 'K. G. Priyantha',
+            callingName: 'Priyantha',
+            nicNumber: '199218507890',
+            phone: '+94 78 234 5678',
+            address: '239, Kurukutthala, Kadugannawa',
+            designation: 'Central Warehouse Storekeeper',
+            department: 'WAREHOUSE',
+            employmentType: 'FULL_TIME',
+            basicSalary: 38000.0,
+            dailyRate: 0.0,
+            otHourlyRate: 280.0,
+            allowances: 4000.0,
+            commissionRate: 0.0,
+            bankName: 'Hatton National Bank',
+            branchName: 'Kadugannawa',
+            accountNumber: '1098765432',
+            epfNumber: 'EPF-92185',
+            notes: 'Morning lorry dispatch and warehouse inventory keeper'
+          }
+        ]
+      });
+      console.log('[System Init] Seeded 4 initial distribution staff records.');
     }
   } catch (err) {
     console.error('[System Init] User init check skipped:', err);

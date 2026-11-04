@@ -646,3 +646,116 @@ export interface RepPerformanceReport {
   repSummaries: RepWiseSummary[];
   repOrders: RepOrderLog[];
 }
+
+// --------------------------------------------------------
+// 10. HR & PAYROLL MANAGEMENT INTERFACES
+// --------------------------------------------------------
+export type EmployeeDepartment = 'SALES_FLEET' | 'WAREHOUSE' | 'MANUFACTURING' | 'ADMIN';
+export type EmploymentType = 'FULL_TIME' | 'DAILY_WAGE' | 'CONTRACT';
+export type AttendanceStatus = 'PRESENT' | 'HALF_DAY' | 'ABSENT' | 'LEAVE';
+
+export interface Employee {
+  id: string;
+  employeeNumber: string;
+  fullName: string;
+  callingName?: string | null;
+  nicNumber?: string | null;
+  phone: string;
+  address?: string | null;
+  designation: string;
+  department: EmployeeDepartment;
+  employmentType: EmploymentType;
+  joinDate: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'TERMINATED';
+  basicSalary: number;
+  dailyRate: number;
+  otHourlyRate: number;
+  allowances: number;
+  commissionRate: number;
+  bankName?: string | null;
+  branchName?: string | null;
+  accountNumber?: string | null;
+  epfNumber?: string | null;
+  userId?: string | null;
+  lorryId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  attendances?: Attendance[];
+  salaryAdvances?: SalaryAdvance[];
+  payrolls?: Payroll[];
+}
+
+export interface Attendance {
+  id: string;
+  employeeId: string;
+  employee?: Employee;
+  date: string;
+  status: AttendanceStatus;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  otHours: number;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SalaryAdvance {
+  id: string;
+  advanceNumber: string;
+  employeeId: string;
+  employee?: Employee;
+  amount: number;
+  date: string;
+  reason?: string | null;
+  paymentMethod: string;
+  status: 'PENDING' | 'DEDUCTED' | 'CANCELLED';
+  payrollId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Payroll {
+  id: string;
+  payslipNumber: string;
+  employeeId: string;
+  employee?: Employee;
+  month: number;
+  year: number;
+  workedDays: number;
+  absentDays: number;
+  leaveDays: number;
+  otHours: number;
+  basicSalary: number;
+  otAmount: number;
+  allowances: number;
+  salesCommission: number;
+  performanceBonus: number;
+  grossEarnings: number;
+  advancesDeducted: number;
+  epfDeduction: number;
+  employerEpf: number;
+  employerEtf: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  netPayable: number;
+  paymentStatus: 'DRAFT' | 'APPROVED' | 'PAID';
+  paymentMethod: string;
+  paidAt?: string | null;
+  expenseId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  salaryAdvances?: SalaryAdvance[];
+}
+
+export interface HrPayrollSummary {
+  totalEmployees: number;
+  activeEmployees: number;
+  todayPresentCount: number;
+  todayAbsentCount: number;
+  pendingAdvancesTotal: number;
+  currentMonthPayrollTotal: number;
+  departmentCounts: Record<string, number>;
+}
