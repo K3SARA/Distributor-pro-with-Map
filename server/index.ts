@@ -24,6 +24,42 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// System Settings Helper & Defaults
+const SETTINGS_FILE = path.join(__dirname, '../settings.json');
+
+const defaultSettings = {
+  companyName: 'Sunbakers & confectionary',
+  tagline: 'Fresh Bakery & Confectionary Distribution',
+  phone: '+94 77 254 9414',
+  email: 'sunbakers@gmail.com',
+  address: '239,kurukutthala ,kadugannawa',
+  registrationNumber: '',
+  invoiceFooterNote: 'Goods received in fresh & satisfactory condition. Thank you for your business!',
+  defaultCurrency: 'LKR',
+  defaultCreditLimit: 50000,
+  lowStockThreshold: 10
+};
+
+function getSettings() {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
+      return { ...defaultSettings, ...JSON.parse(data) };
+    }
+  } catch (err) {
+    console.error('Error reading settings file:', err);
+  }
+  return defaultSettings;
+}
+
+function saveSettings(settings: any) {
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error writing settings file:', err);
+  }
+}
+
 // ========================================================
 // 0. AUTHENTICATION & USER MANAGEMENT (ADMIN & ROUTE REPS)
 // ========================================================
@@ -6162,41 +6198,6 @@ app.get('/api/hr/summary', async (_req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-const SETTINGS_FILE = path.join(__dirname, '../settings.json');
-
-const defaultSettings = {
-  companyName: 'Sunbakers & confectionary',
-  tagline: 'Fresh Bakery & Confectionary Distribution',
-  phone: '+94 77 254 9414',
-  email: 'sunbakers@gmail.com',
-  address: '239,kurukutthala ,kadugannawa',
-  registrationNumber: '',
-  invoiceFooterNote: 'Goods received in fresh & satisfactory condition. Thank you for your business!',
-  defaultCurrency: 'LKR',
-  defaultCreditLimit: 50000,
-  lowStockThreshold: 10
-};
-
-function getSettings() {
-  try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-      return { ...defaultSettings, ...JSON.parse(data) };
-    }
-  } catch (err) {
-    console.error('Error reading settings file:', err);
-  }
-  return defaultSettings;
-}
-
-function saveSettings(settings: any) {
-  try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error writing settings file:', err);
-  }
-}
 
 app.get('/api/settings', (_req: Request, res: Response) => {
   res.json(getSettings());

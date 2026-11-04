@@ -7,30 +7,20 @@ import {
   Plus,
   Search,
   CheckCircle2,
-  Clock,
-  AlertCircle,
   Truck,
-  Building2,
   Printer,
-  ChevronRight,
-  TrendingUp,
   X,
-  CreditCard,
   UserCheck,
-  UserX,
-  Award,
   Wallet,
   Check,
   Trash2,
   Edit,
-  Eye,
   RefreshCw,
   Sparkles
 } from 'lucide-react';
 import { HrService, LorryService } from '../services/api';
 import {
   Employee,
-  Attendance,
   SalaryAdvance,
   Payroll,
   HrPayrollSummary,
@@ -55,7 +45,6 @@ export const HrPayroll: React.FC = () => {
 
   // Summary State
   const [summary, setSummary] = useState<HrPayrollSummary | null>(null);
-  const [loading, setLoading] = useState(false);
 
   // Employees State
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -65,13 +54,11 @@ export const HrPayroll: React.FC = () => {
 
   // Attendance State
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [attendanceList, setAttendanceList] = useState<Attendance[]>([]);
   const [attendanceMap, setAttendanceMap] = useState<Record<string, { status: AttendanceStatus; otHours: number; notes: string }>>({});
   const [attendanceSaving, setAttendanceSaving] = useState(false);
 
   // Advances State
   const [advances, setAdvances] = useState<SalaryAdvance[]>([]);
-  const [advanceStatusFilter, setAdvanceStatusFilter] = useState<string>('ALL');
 
   // Payroll State
   const currentDate = new Date();
@@ -98,14 +85,11 @@ export const HrPayroll: React.FC = () => {
   };
 
   const loadEmployees = async () => {
-    setLoading(true);
     try {
       const data = await HrService.getEmployees();
       setEmployees(data);
     } catch (e) {
       console.error('Failed to load employees', e);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -121,7 +105,6 @@ export const HrPayroll: React.FC = () => {
   const loadAttendance = async (dateStr: string) => {
     try {
       const records = await HrService.getAttendance({ date: dateStr });
-      setAttendanceList(records);
       const map: Record<string, { status: AttendanceStatus; otHours: number; notes: string }> = {};
       records.forEach((r) => {
         map[r.employeeId] = {
@@ -1818,3 +1801,4 @@ const RunPayrollModal: React.FC<RunPayrollModalProps> = ({
     </div>
   );
 };
+

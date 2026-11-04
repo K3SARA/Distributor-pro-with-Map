@@ -2,11 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Printer,
-  FileText,
-  CheckCircle2,
-  Calendar,
-  Building2,
-  CreditCard
+  FileText
 } from 'lucide-react';
 import { Payroll, SystemSettings } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
@@ -443,3 +439,4 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ payroll, onClose }) 
     </div>
   );
 };
+
