@@ -74,15 +74,15 @@ export const RepBillsSummaryModal: React.FC<RepBillsSummaryModalProps> = ({
   // Aggregate financial metrics
   const summaryMetrics = useMemo(() => {
     const totalBills = activeBills.length;
-    const totalValue = activeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-    const totalCash = activeBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
+    const totalValue = activeBills.reduce((acc: number, b: Order) => acc + (b.netTotal || 0), 0);
+    const totalCash = activeBills.reduce((acc: number, b: Order) => acc + (b.cashReceived || 0), 0);
 
-    const cashBills = activeBills.filter((b) => b.paymentMethod === 'CASH');
-    const creditBills = activeBills.filter((b) => b.paymentMethod === 'CREDIT');
-    const chequeBills = activeBills.filter((b) => b.paymentMethod === 'CHEQUE');
+    const cashBills = activeBills.filter((b: Order) => b.paymentMethod === 'CASH');
+    const creditBills = activeBills.filter((b: Order) => b.paymentMethod === 'CREDIT');
+    const chequeBills = activeBills.filter((b: Order) => b.paymentMethod === 'CHEQUE');
 
-    const totalCheque = chequeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-    const totalCredit = activeBills.reduce((acc, b) => {
+    const totalCheque = chequeBills.reduce((acc: number, b: Order) => acc + (b.netTotal || 0), 0);
+    const totalCredit = activeBills.reduce((acc: number, b: Order) => {
       if (b.paymentMethod === 'CHEQUE') return acc;
       return acc + (b.balanceAmount !== undefined ? b.balanceAmount : Math.max(0, (b.netTotal || 0) - (b.cashReceived || 0)));
     }, 0);
@@ -106,7 +106,7 @@ export const RepBillsSummaryModal: React.FC<RepBillsSummaryModalProps> = ({
       { name: string; unit: string; quantity: number; freeQuantity: number; totalValue: number }
     >();
 
-    activeBills.forEach((bill) => {
+    activeBills.forEach((bill: Order) => {
       bill.items?.forEach((item) => {
         const prodName = item.product?.name || 'Unknown Product';
         const unit = item.product?.unit || 'pcs';

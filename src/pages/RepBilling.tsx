@@ -500,13 +500,13 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
   const finishedBillsSummary = useMemo(() => {
     const totalBills = filteredFinishedBills.length;
-    const totalValue = filteredFinishedBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-    const totalCash = filteredFinishedBills.reduce((acc, b) => acc + (b.cashReceived || 0), 0);
-    const cashBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CASH');
-    const creditBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CREDIT');
-    const chequeBills = filteredFinishedBills.filter(b => b.paymentMethod === 'CHEQUE');
-    const totalCheque = chequeBills.reduce((acc, b) => acc + (b.netTotal || 0), 0);
-    const totalCredit = filteredFinishedBills.reduce((acc, b) => {
+    const totalValue = filteredFinishedBills.reduce((acc: number, b: Order) => acc + (b.netTotal || 0), 0);
+    const totalCash = filteredFinishedBills.reduce((acc: number, b: Order) => acc + (b.cashReceived || 0), 0);
+    const cashBills = filteredFinishedBills.filter((b: Order) => b.paymentMethod === 'CASH');
+    const creditBills = filteredFinishedBills.filter((b: Order) => b.paymentMethod === 'CREDIT');
+    const chequeBills = filteredFinishedBills.filter((b: Order) => b.paymentMethod === 'CHEQUE');
+    const totalCheque = chequeBills.reduce((acc: number, b: Order) => acc + (b.netTotal || 0), 0);
+    const totalCredit = filteredFinishedBills.reduce((acc: number, b: Order) => {
       if (b.paymentMethod === 'CHEQUE') return acc;
       return acc + (b.balanceAmount !== undefined ? b.balanceAmount : Math.max(0, (b.netTotal || 0) - (b.cashReceived || 0)));
     }, 0);

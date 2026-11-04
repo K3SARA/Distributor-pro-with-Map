@@ -99,14 +99,14 @@ export const ProfitAndLoss: React.FC = () => {
 
     csv += 'CHANNEL / FLEET PROFITABILITY\n';
     csv += 'Channel,Bills,Net Revenue,COGS,Promotional Cost,Total Cost,Expenses,Gross Profit,Net Profit,Margin %\n';
-    report.channelBreakdown.forEach((c) => {
+    report.channelBreakdown.forEach((c: any) => {
       csv += `"${c.channelName}",${c.billsCount},${c.netRevenue},${c.cogs},${c.freeIssueCost},${c.totalCost},${c.expenses || 0},${c.grossProfit},${c.netProfit !== undefined ? c.netProfit : c.grossProfit},${c.margin.toFixed(2)}%\n`;
     });
     csv += '\n';
 
     csv += 'PRODUCT PROFITABILITY BREAKDOWN\n';
     csv += 'Product Name,SKU,Category,Units Sold,Free Units,Selling Price,Cost Price,Revenue,Total Cost,Gross Profit,Margin %\n';
-    report.productBreakdown.forEach((p) => {
+    report.productBreakdown.forEach((p: any) => {
       csv += `"${p.name}","${p.sku}","${p.category}",${p.unitsSold},${p.unitsFree},${p.unitPrice},${p.costPrice},${p.revenue},${p.totalCost},${p.grossProfit},${p.margin.toFixed(2)}%\n`;
     });
 
@@ -120,7 +120,7 @@ export const ProfitAndLoss: React.FC = () => {
   };
 
   const filteredProducts = report?.productBreakdown.filter(
-    (p) =>
+    (p: any) =>
       p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
       p.sku.toLowerCase().includes(searchProduct.toLowerCase()) ||
       p.category.toLowerCase().includes(searchProduct.toLowerCase())
@@ -468,7 +468,7 @@ export const ProfitAndLoss: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {report.channelBreakdown.map((channel) => {
+              {report.channelBreakdown.map((channel: any) => {
                 const isCounter = channel.id === 'warehouse-counter';
                 const displayName = isCounter ? 'Warehouse Counter' : channel.channelName;
                 const displaySubtext = isCounter ? 'Direct Sales Desk' : channel.subtext;
@@ -639,7 +639,7 @@ export const ProfitAndLoss: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono">
-                    {filteredProducts.map((p) => {
+                    {filteredProducts.map((p: any) => {
                       const isProfitable = p.grossProfit >= 0;
                       return (
                         <tr key={p.productId} className="hover:bg-slate-50/70 transition-colors">

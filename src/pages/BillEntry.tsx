@@ -174,7 +174,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
       setLorries(lorryList);
       setCustomers(custList);
       setTodayOrders(orderList);
-      setWarehouseProducts(prodList.filter(p => !p.isRawMaterial));
+      setWarehouseProducts(prodList.filter((p: any) => !p.isRawMaterial));
 
       if (lorryList.length > 0 && !selectedLorryId) {
         setSelectedLorryId(lorryList[0].id);
@@ -201,7 +201,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   };
 
   const selectedLorry = lorries.find(l => l.id === selectedLorryId);
-  const availableLorryProducts = selectedLorry?.lorryStocks?.filter(s => s.quantity > 0) || [];
+  const availableLorryProducts = selectedLorry?.lorryStocks?.filter((s: any) => s.quantity > 0) || [];
   const selectedCustomer = selectedCustomerId !== 'walk-in' ? customers.find(c => c.id === selectedCustomerId) : null;
 
   // Load unpaid bills when selected customer changes
@@ -209,7 +209,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     if (selectedCustomerId && selectedCustomerId !== 'walk-in') {
       setLoadingUnpaidBills(true);
       CustomerService.getUnpaidBills(selectedCustomerId)
-        .then((bills) => {
+        .then((bills: any[]) => {
           setCustomerUnpaidBills(bills);
           const firstBill = bills[0];
           if (firstBill) {
@@ -254,7 +254,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   }
 
   const availableItems: AvailableItem[] = billMode === 'LORRY'
-    ? availableLorryProducts.map(s => ({
+    ? availableLorryProducts.map((s: any) => ({
         id: s.id,
         productId: s.productId,
         name: s.product.name,
@@ -1254,7 +1254,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
         isOpen={showAddCustomerModal}
         onClose={() => setShowAddCustomerModal(false)}
         defaultRouteId={selectedLorry?.routeId || undefined}
-        onSaved={async (newCust) => {
+        onSaved={async (newCust: any) => {
           try {
             const updated = await CustomerService.getAll();
             setCustomers(updated);

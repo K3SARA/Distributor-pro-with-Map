@@ -3461,7 +3461,7 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
     const startDate = from ? new Date(from as string) : new Date(new Date().setHours(0, 0, 0, 0));
     const endDate = to ? new Date(to as string) : new Date(new Date().setHours(23, 59, 59, 999));
 
-    const [periodOrders, allProducts, customerBalances, lorries, periodExpenses, customerPaymentsPeriod] = await Promise.all([
+    const [periodOrders, allProducts, customerBalances, lorries, periodExpenses, customerPaymentsPeriod, reps] = await Promise.all([
       prisma.order.findMany({
         where: {
           createdAt: {
@@ -3518,25 +3518,25 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       })
     ]);
 
-    const lowStockProducts = allProducts.filter(p => p.currentStock <= p.minStockAlert);
-    const validOrders = periodOrders.filter(o => o.status !== 'CANCELLED');
-    const revenueToday = validOrders.reduce((acc, order) => acc + order.netTotal, 0);
-    const cashToday = validOrders.reduce((acc, order) => acc + (order.cashReceived || 0), 0);
-    const chequesToday = validOrders.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, order) => acc + order.netTotal, 0);
-    const creditToday = validOrders.reduce((acc, order) => {
+    const lowStockProducts = (allProducts as any[]).filter((p: any) => p.currentStock <= p.minStockAlert);
+    const validOrders = (periodOrders as any[]).filter((o: any) => o.status !== 'CANCELLED');
+    const revenueToday = validOrders.reduce((acc: number, order: any) => acc + order.netTotal, 0);
+    const cashToday = validOrders.reduce((acc: number, order: any) => acc + (order.cashReceived || 0), 0);
+    const chequesToday = validOrders.filter((o: any) => o.paymentMethod === 'CHEQUE').reduce((acc: number, order: any) => acc + order.netTotal, 0);
+    const creditToday = validOrders.reduce((acc: number, order: any) => {
       if (order.paymentMethod === 'CHEQUE') return acc;
       return acc + (order.balanceAmount !== undefined ? order.balanceAmount : Math.max(0, order.netTotal - (order.cashReceived || 0)));
     }, 0);
-    const expensesToday = periodExpenses.reduce((acc, exp) => acc + exp.amount, 0);
+    const expensesToday = (periodExpenses as any[]).reduce((acc: number, exp: any) => acc + exp.amount, 0);
     const netProfitToday = revenueToday - expensesToday;
     const creditCollectionsToday = (customerPaymentsPeriod || []).reduce((acc: number, p: any) => acc + p.amount, 0);
 
     // Lorry fleet status breakdown
-    const fleetStatus = lorries.map(l => {
-      const activeLoading = l.loadings[0];
-      const floatingStockUnits = l.lorryStocks.reduce((a, b) => a + b.quantity, 0);
-      const lorryExpenses = periodExpenses.filter(e => e.lorryId === l.id);
-      const todayExpenses = lorryExpenses.reduce((acc, e) => acc + e.amount, 0);
+    const fleetStatus = (lorries as any[]).map((l: any) => {
+      const activeLoading = l.loadings?.[0];
+      const floatingStockUnits = (l.lorryStocks || []).reduce((a: number, b: any) => a + b.quantity, 0);
+      const lorryExpenses = (periodExpenses as any[]).filter((e: any) => e.lorryId === l.id);
+      const todayExpenses = lorryExpenses.reduce((acc: number, e: any) => acc + e.amount, 0);
 
       return {
         id: l.id,
@@ -3552,14 +3552,6 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
     });
 
     // Sales Reps live performance breakdown
-    const reps = await prisma.user.findMany({
-      where: { role: 'REP' },
-      include: {
-        lorry: {
-          include: { route: true }
-        }
-      }
-    });
 
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const mtdOrders = await prisma.order.findMany({
@@ -3574,19 +3566,19 @@ app.get('/api/reports/dashboard-stats', async (req: Request, res: Response) => {
       }
     });
 
-    const repLiveStatus = reps.map((r: any) => {
-      const repOrdersToday = validOrders.filter(o => o.lorryId === r.lorryId);
-      const todaySales = repOrdersToday.reduce((acc, o) => acc + o.netTotal, 0);
-      const todayCash = repOrdersToday.reduce((acc, o) => acc + Math.min(o.netTotal, o.cashReceived || 0), 0);
-      const todayCheque = repOrdersToday.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, o) => acc + o.netTotal, 0);
-      const todayCredit = repOrdersToday.reduce((acc, o) => {
+    const repLiveStatus = (reps as any[]).map((r: any) => {
+      const repOrdersToday = validOrders.filter((o: any) => o.lorryId === r.lorryId);
+      const todaySales = repOrdersToday.reduce((acc: number, o: any) => acc + o.netTotal, 0);
+      const todayCash = repOrdersToday.reduce((acc: number, o: any) => acc + Math.min(o.netTotal, o.cashReceived || 0), 0);
+      const todayCheque = repOrdersToday.filter((o: any) => o.paymentMethod === 'CHEQUE').reduce((acc: number, o: any) => acc + o.netTotal, 0);
+      const todayCredit = repOrdersToday.reduce((acc: number, o: any) => {
         if (o.paymentMethod === 'CHEQUE') return acc;
         return acc + (o.balanceAmount !== undefined ? o.balanceAmount : Math.max(0, o.netTotal - (o.cashReceived || 0)));
       }, 0);
       const todayBillsCount = repOrdersToday.length;
 
-      const repMtdOrders = mtdOrders.filter(o => o.lorryId === r.lorryId);
-      const monthToDateSales = repMtdOrders.reduce((acc, o) => acc + o.netTotal, 0);
+      const repMtdOrders = (mtdOrders as any[]).filter((o: any) => o.lorryId === r.lorryId);
+      const monthToDateSales = repMtdOrders.reduce((acc: number, o: any) => acc + o.netTotal, 0);
 
       const dailyTarget = r.dailyTarget || 20000;
       const monthlyTarget = r.monthlyTarget || 500000;
@@ -4322,8 +4314,8 @@ app.get('/api/reports/profit-and-loss', async (req: Request, res: Response) => {
     const grossProfit = netRevenue - totalCostOfSales;
     const grossProfitMargin = netRevenue > 0 ? (grossProfit / netRevenue) * 100 : 0;
     const markupPercentage = totalCostOfSales > 0 ? (grossProfit / totalCostOfSales) * 100 : 0;
-    const chequesCollected = orders.filter(o => o.paymentMethod === 'CHEQUE').reduce((acc, o) => acc + o.netTotal, 0);
-    const creditReceivables = orders.reduce((acc, o) => {
+    const chequesCollected = (orders as any[]).filter((o: any) => o.paymentMethod === 'CHEQUE').reduce((acc: number, o: any) => acc + o.netTotal, 0);
+    const creditReceivables = (orders as any[]).reduce((acc: number, o: any) => {
       if (o.paymentMethod === 'CHEQUE') return acc;
       return acc + (o.balanceAmount !== undefined ? o.balanceAmount : Math.max(0, o.netTotal - (o.cashReceived || 0)));
     }, 0);
