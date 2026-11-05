@@ -292,9 +292,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
   const selectedLorry = lorries.find(l => l.id === selectedLorryId);
   const lorryStockMap = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, { stock: number; freeStock: number }>();
     if (selectedLorry && Array.isArray(selectedLorry.lorryStocks)) {
-      selectedLorry.lorryStocks.forEach(s => map.set(s.productId, s.quantity));
+      selectedLorry.lorryStocks.forEach(s => map.set(s.productId, { stock: s.quantity, freeStock: s.freeQuantity || 0 }));
     }
     return map;
   }, [selectedLorry]);
@@ -372,7 +372,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
   // Cart Management
   const addToCart = (product: Product, qty: number = 1) => {
-    const lorryStock = lorryStockMap.get(product.id) ?? product.currentStock;
+    const stockInfo = lorryStockMap.get(product.id);
+    const lorryStock = stockInfo ? stockInfo.stock : product.currentStock;
     const buyRatio = product.freeRatioBuy || 0;
     const getRatio = product.freeRatioGet || 0;
     const calcFree = (q: number) => (buyRatio > 0 && getRatio > 0 && q > 0 ? Math.floor(q / buyRatio) * getRatio : 0);
@@ -1181,7 +1182,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             {/* Products List */}
             <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-0.5">
               {brandProducts.map(product => {
-                const stock = lorryStockMap.get(product.id) ?? product.currentStock;
+                const stockInfo = lorryStockMap.get(product.id);
+                const regularStock = stockInfo ? stockInfo.stock : product.currentStock;
+                const freeStock = stockInfo ? stockInfo.freeStock : (product.freeStock || 0);
                 const inCart = cart.find(i => i.productId === product.id);
 
                 return (
@@ -1193,7 +1196,10 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                       <h4 className="text-xs font-bold text-slate-900 truncate">{product.name}</h4>
                       <p className="text-[11px] text-slate-500 font-mono">
                         <span className="font-bold text-blue-600">{formatMoney(product.unitPrice)}</span>
-                        <span className="ml-1 text-slate-400">• Stock: {stock}</span>
+                        <span className="ml-1 text-slate-500">• Stock: {regularStock}</span>
+                        {freeStock > 0 && (
+                          <span className="ml-1 text-emerald-700 font-bold bg-emerald-50 px-1 rounded">+{freeStock} Free</span>
+                        )}
                       </p>
                     </div>
 

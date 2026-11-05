@@ -24,6 +24,14 @@ interface BillItemRow {
   freeQuantity: number;
 }
 
+interface BillReturnRow {
+  productId: string;
+  quantity: number;
+  unitPrice?: number;
+  returnType: 'DAMAGE' | 'RESALE';
+  reason?: string;
+}
+
 interface BillEntryProps {
   onViewInvoice?: (order: Order) => void;
 }
@@ -46,6 +54,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   const [walkInName, setWalkInName] = useState<string>('');
   const [walkInPhone, setWalkInPhone] = useState<string>('');
   const [billItems, setBillItems] = useState<BillItemRow[]>([{ productId: '', quantity: 1, freeQuantity: 0 }]);
+  const [returnItems, setReturnItems] = useState<BillReturnRow[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CREDIT' | 'CHEQUE'>('CASH');
   const [cashReceived, setCashReceived] = useState<string>('');
   const [chequeNumber, setChequeNumber] = useState<string>('');
@@ -90,6 +99,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
         if (Array.isArray(d.billItems) && d.billItems.length > 0) {
           setBillItems(d.billItems);
         }
+        if (Array.isArray(d.returnItems)) {
+          setReturnItems(d.returnItems);
+        }
         if (d.paymentMethod) setPaymentMethod(d.paymentMethod);
         if (d.cashReceived) setCashReceived(d.cashReceived);
         if (d.notes) setNotes(d.notes);
@@ -108,7 +120,8 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
       walkInPhone.trim() !== '' ||
       notes.trim() !== '' ||
       (selectedCustomerId !== '' && selectedCustomerId !== 'walk-in') ||
-      billItems.some(i => i.productId !== '');
+      billItems.some(i => i.productId !== '') ||
+      returnItems.some(r => r.productId !== '');
 
     if (hasContent) {
       try {
@@ -122,6 +135,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
             walkInName,
             walkInPhone,
             billItems,
+            returnItems,
             paymentMethod,
             cashReceived,
             notes
@@ -138,6 +152,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     walkInName,
     walkInPhone,
     billItems,
+    returnItems,
     paymentMethod,
     cashReceived,
     notes
@@ -149,6 +164,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     } catch (e) {}
     setPaperBillNumber('');
     setBillItems([{ productId: '', quantity: 1, freeQuantity: 0 }]);
+    setReturnItems([]);
     setWalkInName('');
     setWalkInPhone('');
     setSelectedCustomerId(billMode === 'WALK_IN' ? 'walk-in' : '');
@@ -201,7 +217,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
   };
 
   const selectedLorry = lorries.find(l => l.id === selectedLorryId);
-  const availableLorryProducts = selectedLorry?.lorryStocks?.filter((s: any) => s.quantity > 0) || [];
+  const availableLorryProducts = selectedLorry?.lorryStocks?.filter((s: any) => (s.quantity > 0) || (s.freeQuantity && s.freeQuantity > 0)) || [];
   const selectedCustomer = selectedCustomerId !== 'walk-in' ? customers.find(c => c.id === selectedCustomerId) : null;
 
   // Load unpaid bills when selected customer changes
@@ -249,6 +265,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     unit: string;
     unitPrice: number;
     stock: number;
+    freeStock: number;
     freeRatioBuy?: number;
     freeRatioGet?: number;
   }
@@ -261,11 +278,12 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
         unit: s.product.unit,
         unitPrice: s.product.unitPrice,
         stock: s.quantity,
+        freeStock: s.freeQuantity || 0,
         freeRatioBuy: s.product.freeRatioBuy,
         freeRatioGet: s.product.freeRatioGet
       }))
     : warehouseProducts
-        .filter(p => p.currentStock > 0)
+        .filter(p => p.currentStock > 0 || (p.freeStock && p.freeStock > 0))
         .map(p => ({
           id: p.id,
           productId: p.id,
@@ -273,12 +291,17 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
           unit: p.unit,
           unitPrice: p.unitPrice,
           stock: p.currentStock,
+          freeStock: p.freeStock || 0,
           freeRatioBuy: p.freeRatioBuy,
           freeRatioGet: p.freeRatioGet
         }));
 
   const addItemRow = () => {
     setBillItems([...billItems, { productId: '', quantity: 1, freeQuantity: 0 }]);
+  };
+
+  const addReturnRow = () => {
+    setReturnItems([...returnItems, { productId: '', quantity: 1, returnType: 'DAMAGE', reason: '' }]);
   };
 
   const updateItemRow = (index: number, field: keyof BillItemRow, value: any) => {
@@ -303,12 +326,29 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     setBillItems(updated);
   };
 
+  const updateReturnRow = (index: number, field: keyof BillReturnRow, value: any) => {
+    const updated = [...returnItems];
+    const currentRow = { ...updated[index], [field]: value };
+    if (field === 'productId') {
+      const prod = warehouseProducts.find(p => p.id === value);
+      if (prod) {
+        currentRow.unitPrice = prod.unitPrice;
+      }
+    }
+    updated[index] = currentRow;
+    setReturnItems(updated);
+  };
+
   const removeItemRow = (index: number) => {
     if (billItems.length === 1) {
       setBillItems([{ productId: '', quantity: 1, freeQuantity: 0 }]);
       return;
     }
     setBillItems(billItems.filter((_, i) => i !== index));
+  };
+
+  const removeReturnRow = (index: number) => {
+    setReturnItems(returnItems.filter((_, i) => i !== index));
   };
 
   // Calculate bill totals
@@ -320,12 +360,23 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     }, 0);
   };
 
+  const calculateReturnAmount = () => {
+    return returnItems.reduce((acc, ret) => {
+      if (!ret.productId || ret.quantity <= 0) return acc;
+      const prod = warehouseProducts.find(p => p.id === ret.productId);
+      const price = ret.unitPrice !== undefined ? ret.unitPrice : (prod ? prod.unitPrice : 0);
+      return acc + (price * (ret.quantity || 0));
+    }, 0);
+  };
+
   const subtotal = calculateSubtotal();
+  const returnAmount = calculateReturnAmount();
   const discountPercent = selectedCustomer?.discountPercentage || 0;
   const discountAmount = (subtotal * discountPercent) / 100;
-  const netTotal = subtotal - discountAmount;
+  const netTotal = Math.max(0, subtotal - discountAmount - returnAmount);
   const totalBilledUnits = billItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
   const totalFreeUnits = billItems.reduce((acc, item) => acc + (item.freeQuantity || 0), 0);
+  const totalReturnUnits = returnItems.reduce((acc, ret) => acc + (ret.productId && ret.quantity > 0 ? ret.quantity : 0), 0);
 
   // Auto set cash received if cash mode
   useEffect(() => {
@@ -351,8 +402,10 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     }
 
     const validItems = billItems.filter(i => i.productId && i.quantity > 0);
-    if (validItems.length === 0) {
-      setErrorMessage('Please add at least one line item with quantity > 0.');
+    const validReturns = returnItems.filter(r => r.productId && r.quantity > 0);
+
+    if (validItems.length === 0 && validReturns.length === 0) {
+      setErrorMessage('Please add at least one line item or return item.');
       return;
     }
 
@@ -360,9 +413,10 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
     for (const line of validItems) {
       const itemInfo = availableItems.find(s => s.productId === line.productId);
       const totalUnits = (line.quantity || 0) + (line.freeQuantity || 0);
-      if (!itemInfo || itemInfo.stock < totalUnits) {
+      const totalAvailable = (itemInfo?.stock || 0) + (itemInfo?.freeStock || 0);
+      if (!itemInfo || totalAvailable < totalUnits) {
         setErrorMessage(
-          `Insufficient ${billMode === 'LORRY' ? `stock on Lorry ${selectedLorry?.vehicleNumber}` : 'Central Warehouse stock'} for "${itemInfo?.name || 'Selected Item'}". Only ${itemInfo?.stock || 0} units available, bill requires ${line.quantity} sold + ${line.freeQuantity || 0} free (${totalUnits} total).`
+          `Insufficient ${billMode === 'LORRY' ? `stock on Lorry ${selectedLorry?.vehicleNumber}` : 'Central Warehouse stock'} for "${itemInfo?.name || 'Selected Item'}". Only ${itemInfo?.stock || 0} paid + ${itemInfo?.freeStock || 0} free (${totalAvailable} total) units available, bill requires ${line.quantity} sold + ${line.freeQuantity || 0} free (${totalUnits} total).`
         );
         return;
       }
@@ -392,6 +446,14 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
             ]
           : undefined;
 
+      const formattedReturnsPayload = validReturns.map(r => ({
+        productId: r.productId,
+        quantity: r.quantity,
+        unitPrice: r.unitPrice,
+        returnType: r.returnType,
+        reason: r.reason
+      }));
+
       if (billMode === 'LORRY') {
         const createdOrder = await LorryService.enterDriverBill(selectedLorryId, {
           paperBillNumber: paperBillNumber.trim() || undefined,
@@ -401,6 +463,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
             quantity: i.quantity,
             freeQuantity: i.freeQuantity || 0
           })),
+          returnItems: formattedReturnsPayload.length > 0 ? formattedReturnsPayload : undefined,
           paymentMethod,
           cashReceived: parsedCash,
           chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber.trim() : undefined,
@@ -411,8 +474,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
         });
 
         const settleNote = previousBillsPayload ? ` + Cleared Prev Bill (${formatMoney(previousBillsPayload[0].amount)})` : '';
+        const returnNote = returnAmount > 0 ? ` (Deducted ${totalReturnUnits} returned units: -${formatMoney(returnAmount)})` : '';
         setSuccessMessage(
-          `Lorry Bill #${paperBillNumber || createdOrder.orderNumber} successfully entered for ${createdOrder.customer.name}! (${totalBilledUnits} paid + ${totalFreeUnits} free units deducted from lorry)${settleNote}`
+          `Lorry Bill #${paperBillNumber || createdOrder.orderNumber} successfully entered for ${createdOrder.customer.name}! (${totalBilledUnits} paid + ${totalFreeUnits} free units deducted from lorry)${returnNote}${settleNote}`
         );
       } else {
         // WALK_IN mode: deducts directly from warehouse stock
@@ -426,6 +490,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
             quantity: i.quantity,
             freeQuantity: i.freeQuantity || 0
           })),
+          returnItems: formattedReturnsPayload.length > 0 ? formattedReturnsPayload : undefined,
           paymentMethod,
           cashReceived: parsedCash,
           chequeNumber: paymentMethod === 'CHEQUE' ? chequeNumber.trim() : undefined,
@@ -437,8 +502,9 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
 
         const customerDisplayName = walkInName.trim() || (createdOrder.customer ? createdOrder.customer.name : 'Walk-in Customer');
         const settleNote = previousBillsPayload ? ` + Cleared Prev Bill (${formatMoney(previousBillsPayload[0].amount)})` : '';
+        const returnNote = returnAmount > 0 ? ` (Deducted ${totalReturnUnits} returned units: -${formatMoney(returnAmount)})` : '';
         setSuccessMessage(
-          `Counter Bill #${paperBillNumber || createdOrder.orderNumber} successfully saved for ${customerDisplayName}! (${totalBilledUnits} paid + ${totalFreeUnits} free units deducted directly from Central Warehouse)${settleNote}`
+          `Counter Bill #${paperBillNumber || createdOrder.orderNumber} successfully saved for ${customerDisplayName}! (${totalBilledUnits} paid + ${totalFreeUnits} free units deducted from Central Warehouse)${returnNote}${settleNote}`
         );
       }
 
@@ -608,17 +674,28 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                 {billMode === 'LORRY' ? 'Paper Bill Slip Details' : 'Walk-in Counter Sale Details'}
               </h2>
             </div>
-            <button
-              type="button"
-              onClick={addItemRow}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs sm:text-sm font-semibold rounded-xl transition-colors ${
-                billMode === 'LORRY'
-                  ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                  : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-              }`}
-            >
-              <Plus className="w-4 h-4" /> Add Item Line
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={addReturnRow}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-xl transition-colors text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/70"
+                title="Add Returned or Damaged goods to deduct from bill total"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>+ Return / Damage</span>
+              </button>
+              <button
+                type="button"
+                onClick={addItemRow}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs sm:text-sm font-semibold rounded-xl transition-colors ${
+                  billMode === 'LORRY'
+                    ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                    : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                }`}
+              >
+                <Plus className="w-4 h-4" /> Add Item Line
+              </button>
+            </div>
           </div>
 
           <form onSubmit={handleSubmitBill} className="space-y-4">
@@ -839,7 +916,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                           </option>
                           {availableItems.map((s) => (
                             <option key={s.productId} value={s.productId}>
-                              {s.name} ({billMode === 'LORRY' ? 'Lorry' : 'Warehouse'}: {s.stock} {s.unit})
+                              {s.name} ({billMode === 'LORRY' ? 'Lorry' : 'Warehouse'}: {s.stock} paid + {s.freeStock} free)
                               {s.freeRatioBuy && s.freeRatioBuy > 0 && s.freeRatioGet
                                 ? ` ★ Promo: Buy ${s.freeRatioBuy} get ${s.freeRatioGet} Free`
                                 : ''} - {formatMoney(s.unitPrice)}
@@ -855,7 +932,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                           <input
                             type="number"
                             min="1"
-                            max={itemInfo ? itemInfo.stock : 9999}
+                            max={itemInfo ? (itemInfo.stock + itemInfo.freeStock) : 9999}
                             value={item.quantity || ''}
                             onChange={(e) => updateItemRow(index, 'quantity', parseInt(e.target.value, 10) || 0)}
                             placeholder="Paid Qty"
@@ -870,11 +947,11 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                           <input
                             type="number"
                             min="0"
-                            max={itemInfo ? itemInfo.stock : 9999}
+                            max={itemInfo ? (itemInfo.stock + itemInfo.freeStock) : 9999}
                             value={item.freeQuantity !== undefined ? item.freeQuantity : ''}
                             onChange={(e) => updateItemRow(index, 'freeQuantity', parseInt(e.target.value, 10) || 0)}
                             placeholder="0 Free"
-                            title="Promotional Free Issue (Rs. 0)"
+                            title="Promotional Free Issue (Cost: Rs. 0.00)"
                             className="w-full bg-emerald-50/70 border border-emerald-200 text-emerald-900 rounded-xl px-2 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center"
                           />
                           {hasScheme && item.quantity > 0 && (
@@ -898,6 +975,138 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Return Goods / Damage Goods (Credit Deductions) */}
+            <div className="space-y-2 pt-3 border-t border-dashed border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4 text-amber-600" />
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Customer Returns / Damage Goods (Credit Deduction)
+                  </span>
+                  {returnItems.length > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      {returnItems.length} {returnItems.length === 1 ? 'item' : 'items'}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={addReturnRow}
+                  className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1 rounded-xl transition flex items-center gap-1 border border-amber-200/60"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Return / Damage
+                </button>
+              </div>
+
+              {returnItems.length === 0 ? (
+                <div className="p-3 bg-slate-50/70 border border-dashed border-slate-200 rounded-2xl flex items-center justify-between text-xs text-slate-500">
+                  <span>No returned or damaged items added for this bill.</span>
+                  <button
+                    type="button"
+                    onClick={addReturnRow}
+                    className="text-xs text-amber-700 font-semibold hover:underline"
+                  >
+                    + Add Return / Damage
+                  </button>
+                </div>
+              ) : (
+                returnItems.map((ret, index) => {
+                  const prod = warehouseProducts.find(p => p.id === ret.productId);
+                  const rate = ret.unitPrice !== undefined ? ret.unitPrice : (prod ? prod.unitPrice : 0);
+                  const lineReturnTotal = rate * (ret.quantity || 0);
+
+                  return (
+                    <div
+                      key={index}
+                      className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 p-3 bg-amber-50/40 border border-amber-200/70 rounded-2xl"
+                    >
+                      {/* Condition / Return Type */}
+                      <div className="w-full sm:w-44 shrink-0">
+                        <select
+                          value={ret.returnType}
+                          onChange={(e) => updateReturnRow(index, 'returnType', e.target.value as any)}
+                          className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-2 text-xs font-bold text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        >
+                          <option value="DAMAGE">💥 Damaged / Expired</option>
+                          <option value="RESALE">✨ Good Condition</option>
+                        </select>
+                      </div>
+
+                      {/* Product Selector */}
+                      <div className="flex-1 w-full">
+                        <select
+                          value={ret.productId}
+                          onChange={(e) => updateReturnRow(index, 'productId', e.target.value)}
+                          required
+                          className="w-full bg-white border border-amber-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        >
+                          <option value="">-- Select Returned Product --</option>
+                          {warehouseProducts.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.sku}) - Price: {formatMoney(p.unitPrice)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Return Quantity */}
+                      <div className="w-20">
+                        <input
+                          type="number"
+                          min="1"
+                          value={ret.quantity || ''}
+                          onChange={(e) => updateReturnRow(index, 'quantity', parseInt(e.target.value, 10) || 0)}
+                          placeholder="Qty"
+                          title="Return Quantity"
+                          required
+                          className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-center"
+                        />
+                      </div>
+
+                      {/* Credit Rate per unit */}
+                      <div className="w-24">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={ret.unitPrice !== undefined ? ret.unitPrice : ''}
+                          onChange={(e) => updateReturnRow(index, 'unitPrice', parseFloat(e.target.value) || 0)}
+                          placeholder="Rate"
+                          title="Return Credit Rate"
+                          className="w-full bg-white border border-amber-200 rounded-xl px-2 py-2 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 text-right"
+                        />
+                      </div>
+
+                      {/* Reason / Notes */}
+                      <div className="flex-1 sm:max-w-44">
+                        <input
+                          type="text"
+                          value={ret.reason || ''}
+                          onChange={(e) => updateReturnRow(index, 'reason', e.target.value)}
+                          placeholder="Reason (e.g. Expired, Stale)"
+                          className="w-full bg-white border border-amber-200 rounded-xl px-2.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      {/* Line Credit Total */}
+                      <div className="w-24 text-right font-mono text-xs font-bold text-rose-600">
+                        -{formatMoney(lineReturnTotal)}
+                      </div>
+
+                      {/* Delete */}
+                      <button
+                        type="button"
+                        onClick={() => removeReturnRow(index)}
+                        className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-white transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   );
                 })
@@ -1036,6 +1245,7 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                   </span>
                   <span className="text-sm font-mono font-semibold text-slate-700">
                     {totalBilledUnits} Paid {totalFreeUnits > 0 && <span className="text-emerald-600 font-bold">(+{totalFreeUnits} Free)</span>}
+                    {totalReturnUnits > 0 && <span className="text-amber-700 font-bold ml-1">({totalReturnUnits} returned)</span>}
                   </span>
                 </div>
                 <div>
@@ -1053,6 +1263,16 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                     </span>
                     <span className="text-sm font-mono font-semibold text-emerald-600">
                       -{formatMoney(discountAmount)}
+                    </span>
+                  </div>
+                )}
+                {returnAmount > 0 && (
+                  <div>
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                      Returns / Damages
+                    </span>
+                    <span className="text-sm font-mono font-semibold text-rose-600">
+                      -{formatMoney(returnAmount)}
                     </span>
                   </div>
                 )}
@@ -1144,9 +1364,16 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
                         ) : null}
                       </div>
                     </div>
-                    <span className="font-mono font-bold text-slate-900 px-2 py-0.5 bg-white border border-slate-200 rounded-lg shrink-0">
-                      {item.stock} {item.unit}
-                    </span>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="font-mono font-bold text-slate-900 px-2 py-0.5 bg-white border border-slate-200 rounded-lg text-xs">
+                        {item.stock} {item.unit}
+                      </span>
+                      {item.freeStock > 0 && (
+                        <span className="text-[10px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-1 rounded mt-0.5 border border-emerald-200/60">
+                          +{item.freeStock} Free
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))
               ) : (

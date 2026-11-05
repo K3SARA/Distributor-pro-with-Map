@@ -28,6 +28,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     unitPrice: '',
     costPrice: '',
     currentStock: '0',
+    freeStock: '0',
     minStockAlert: '10',
     freeRatioBuy: '0',
     freeRatioGet: '0',
@@ -46,6 +47,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         unitPrice: product.isRawMaterial ? '' : product.unitPrice.toString(),
         costPrice: product.costPrice.toString(),
         currentStock: product.currentStock.toString(),
+        freeStock: (product.freeStock || 0).toString(),
         minStockAlert: product.minStockAlert.toString(),
         freeRatioBuy: (product.freeRatioBuy || 0).toString(),
         freeRatioGet: (product.freeRatioGet || 0).toString(),
@@ -60,6 +62,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         unitPrice: '',
         costPrice: '',
         currentStock: '0',
+        freeStock: '0',
         minStockAlert: '10',
         freeRatioBuy: '0',
         freeRatioGet: '0',
@@ -96,6 +99,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         unitPrice: formData.isRawMaterial ? 0 : parseFloat(formData.unitPrice || '0'),
         costPrice: parseFloat(formData.costPrice || '0'),
         currentStock: parseInt(formData.currentStock || '0', 10),
+        freeStock: parseInt(formData.freeStock || '0', 10),
         minStockAlert: parseInt(formData.minStockAlert || '10', 10),
         freeRatioBuy: formData.isRawMaterial ? 0 : (parseInt(formData.freeRatioBuy, 10) || 0),
         freeRatioGet: formData.isRawMaterial ? 0 : (parseInt(formData.freeRatioGet, 10) || 0),
@@ -342,20 +346,40 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
           <div className="grid grid-cols-2 gap-4 pt-1">
             {!product && (
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                  Starting Stock ({formData.unit})
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={formData.currentStock}
-                  onChange={e => setFormData({ ...formData, currentStock: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Starting Paid Stock ({formData.unit})
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.currentStock}
+                    onChange={e => setFormData({ ...formData, currentStock: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold uppercase tracking-wider text-emerald-700 block">
+                      Free Issue Stock
+                    </label>
+                    <span className="text-[10px] font-bold px-1 rounded bg-emerald-100 text-emerald-800 font-mono">
+                      Cost: 0
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    value={formData.freeStock}
+                    onChange={e => setFormData({ ...formData, freeStock: e.target.value })}
+                    placeholder="0"
+                    className="w-full bg-emerald-50/50 border border-emerald-300 rounded-xl px-3 py-2 text-sm font-semibold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                  />
+                </div>
+              </>
             )}
-            <div className={product ? 'col-span-2' : ''}>
+            <div className="col-span-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
                 Low Stock Alert Threshold ({formData.unit})
               </label>
@@ -404,7 +428,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     value={formData.freeRatioGet}
                     onChange={e => setFormData({ ...formData, freeRatioGet: e.target.value })}
                     placeholder="e.g. 1"
-                    className="w-white border border-blue-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="bg-white border border-blue-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>

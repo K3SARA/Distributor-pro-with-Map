@@ -26,7 +26,8 @@ import {
   Attendance,
   SalaryAdvance,
   Payroll,
-  HrPayrollSummary
+  HrPayrollSummary,
+  VehicleReturnsReport
 } from '../types';
 
 // Dynamic API URL: uses relative '/api' on Railway / production web,
@@ -51,7 +52,7 @@ export const ProductService = {
     api.put<Product>(`/products/${id}`, data).then(r => r.data),
   delete: (id: string) =>
     api.delete(`/products/${id}`).then(r => r.data),
-  adjustStock: (id: string, payload: { quantity: number; type: string; notes?: string; referenceId?: string }) =>
+  adjustStock: (id: string, payload: { quantity: number; type: string; isFreeIssue?: boolean; notes?: string; referenceId?: string }) =>
     api.post<Product>(`/products/${id}/stock-adjust`, payload).then(r => r.data)
 };
 
@@ -71,7 +72,7 @@ export const LorryService = {
     api.post<Lorry>('/lorries', data).then(r => r.data),
   update: (id: string, data: Partial<Lorry>) =>
     api.put<Lorry>(`/lorries/${id}`, data).then(r => r.data),
-  loadMorningStock: (id: string, payload: { items: { productId: string; quantity: number }[]; notes?: string }) =>
+  loadMorningStock: (id: string, payload: { items: { productId: string; quantity: number; freeQuantity?: number }[]; notes?: string }) =>
     api.post<LorryLoading>(`/lorries/${id}/load`, payload).then(r => r.data),
   getCurrentLoading: (id: string) =>
     api.get<LorryLoading | null>(`/lorries/${id}/current-loading`).then(r => r.data),
@@ -79,6 +80,7 @@ export const LorryService = {
     paperBillNumber?: string;
     customerId: string;
     items: { productId: string; quantity: number; freeQuantity?: number; unitPrice?: number }[];
+    returnItems?: { productId: string; quantity: number; unitPrice?: number; returnType: 'DAMAGE' | 'RESALE'; reason?: string }[];
     paymentMethod: 'CASH' | 'CREDIT' | 'CHEQUE';
     cashReceived: number;
     discountAmount?: number;
@@ -91,7 +93,7 @@ export const LorryService = {
   }) => api.post<Order>(`/lorries/${id}/bills`, payload).then(r => r.data),
   settleLorry: (id: string, payload: {
     loadingId: string;
-    returns: { productId: string; returnedQty: number }[];
+    returns: { productId: string; returnedQty: number; returnedFreeQty?: number }[];
     cashHandover: number;
     notes?: string;
   }) => api.post<LorryLoading>(`/lorries/${id}/settle`, payload).then(r => r.data)
@@ -146,6 +148,7 @@ export const OrderService = {
     walkInPhone?: string;
     paperBillNumber?: string;
     items: { productId: string; quantity: number; freeQuantity?: number; unitPrice?: number }[];
+    returnItems?: { productId: string; quantity: number; unitPrice?: number; returnType: 'DAMAGE' | 'RESALE'; reason?: string }[];
     paymentStatus?: string;
     paymentMethod?: string;
     cashReceived?: number;
@@ -215,7 +218,9 @@ export const ReportService = {
   getCustomerBalances: () =>
     api.get<any>('/reports/customer-balances').then(r => r.data),
   getProfitAndLoss: (from?: string, to?: string) =>
-    api.get<ProfitAndLossReport>('/reports/profit-and-loss', { params: { from, to } }).then(r => r.data)
+    api.get<ProfitAndLossReport>('/reports/profit-and-loss', { params: { from, to } }).then(r => r.data),
+  getVehicleReturns: (from?: string, to?: string, lorryId?: string) =>
+    api.get<VehicleReturnsReport>('/reports/vehicle-returns', { params: { from, to, lorryId } }).then(r => r.data)
 };
 
 export const SettingsService = {

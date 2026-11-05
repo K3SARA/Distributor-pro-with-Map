@@ -10,17 +10,19 @@ import {
   Compass,
   RotateCcw,
   TrendingUp,
-  Receipt
+  Receipt,
+  Search,
+  AlertTriangle
 } from 'lucide-react';
 import { ReportService } from '../services/api';
-import { StockMovement, Customer, LorryPerformanceReport, RepPerformanceReport } from '../types';
+import { StockMovement, Customer, LorryPerformanceReport, RepPerformanceReport, VehicleReturnsReport } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 import { DateRangeFilter, DatePreset } from '../components/DateRangeFilter';
 import { ProfitAndLoss } from './ProfitAndLoss';
 
 export const Reports: React.FC = () => {
   const { formatMoney } = useCurrency();
-  const [activeTab, setActiveTab] = useState<'PNL' | 'LORRIES' | 'ROUTES' | 'SALES' | 'STOCK' | 'BALANCES' | 'REPS'>('LORRIES');
+  const [activeTab, setActiveTab] = useState<'PNL' | 'LORRIES' | 'RETURNS' | 'ROUTES' | 'SALES' | 'STOCK' | 'BALANCES' | 'REPS'>('LORRIES');
   const [, setLoading] = useState(false);
 
   // Date filter state
@@ -36,9 +38,15 @@ export const Reports: React.FC = () => {
   const [balancesData, setBalancesData] = useState<any>(null);
   const [repReport, setRepReport] = useState<RepPerformanceReport | null>(null);
 
+  // Returns Report Data & Filters
+  const [returnsReport, setReturnsReport] = useState<VehicleReturnsReport | null>(null);
+  const [selectedVehicleFilter, setSelectedVehicleFilter] = useState<string>('ALL');
+  const [returnTypeFilter, setReturnTypeFilter] = useState<'ALL' | 'DAMAGE' | 'RESALE'>('ALL');
+  const [returnSearch, setReturnSearch] = useState<string>('');
+
   useEffect(() => {
     loadActiveReport();
-  }, [activeTab, dateRange]);
+  }, [activeTab, dateRange, selectedVehicleFilter]);
 
   const loadActiveReport = async () => {
     setLoading(true);
@@ -52,6 +60,9 @@ export const Reports: React.FC = () => {
           setLorryReport(null);
           setLorryLoadings(Array.isArray(data) ? data : []);
         }
+      } else if (activeTab === 'RETURNS') {
+        const data = await ReportService.getVehicleReturns(dateRange.from, dateRange.to, selectedVehicleFilter !== 'ALL' ? selectedVehicleFilter : undefined);
+        setReturnsReport(data);
       } else if (activeTab === 'ROUTES') {
         const data = await ReportService.getRouteSales(dateRange.from, dateRange.to);
         setRouteSummaries(data);
@@ -107,6 +118,11 @@ export const Reports: React.FC = () => {
         const cashSales = l.totalCashSales ?? l.cashCollected ?? 0;
         const creditSales = l.totalCreditSale ?? (l.creditGiven > 0 ? l.creditGiven : Math.max(0, allSales - cashSales));
         csvContent += `"${l.loadingNumber}","${new Date(l.date).toLocaleDateString()}","${l.lorry?.vehicleNumber || ''}","${l.lorry?.driverName || ''}","${l.lorry?.route?.name || ''}","${l.status}",${l.totalLoadedItems},${l.totalSoldItems},${l.totalFreeItems || 0},${l.totalReturnedItems},${allSales},${cashSales},${creditSales}\n`;
+      });
+    } else if (activeTab === 'RETURNS' && returnsReport) {
+      csvContent += 'Vehicle Number,Driver,Route,Bill Number,Paper Slip,Date,Customer,Product Name,SKU,Unit,Condition,Returned Qty,Credit Rate,Total Credit,Reason\n';
+      returnsReport.recentReturnItems.forEach((r) => {
+        csvContent += `"${r.vehicleNumber || 'Warehouse'}","${r.driverName || 'Counter'}","${r.routeName || ''}","${r.orderNumber}","${r.paperBillNumber || ''}","${new Date(r.date).toLocaleDateString()}","${r.customerName}","${r.productName}","${r.sku}","${r.unit}","${r.returnType}",${r.quantity},${r.unitPrice},${r.total},"${r.reason || ''}"\n`;
       });
     } else if (activeTab === 'ROUTES') {
       csvContent += 'Route Code,Route Name,Driver / Lorry,Customers,Total Bills,Total Sales,Cash Collected,Credit Given\n';
@@ -200,6 +216,13 @@ export const Reports: React.FC = () => {
             <Truck className="w-3.5 h-3.5 text-blue-600" /> Lorry Audit
           </button>
           <button
+            onClick={() => setActiveTab('RETURNS')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${activeTab === 'RETURNS' ? 'bg-white text-amber-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-600" /> Vehicle Returns
+          </button>
+          <button
             onClick={() => setActiveTab('REPS')}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition whitespace-nowrap ${activeTab === 'REPS' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
@@ -256,6 +279,7 @@ export const Reports: React.FC = () => {
             <div>
               <h2 className="text-lg sm:text-xl font-bold text-slate-900">
                 {activeTab === 'LORRIES' && 'Lorry Morning Load & Evening Settlement Audit'}
+                {activeTab === 'RETURNS' && 'Vehicle-Wise Returns & Damage Goods Audit'}
                 {activeTab === 'REPS' && 'Sales Reps Quota Performance & Route Distribution Audit'}
                 {activeTab === 'ROUTES' && `${routeSummaries.length || 3} Routes Distribution Performance Analysis`}
                 {activeTab === 'SALES' && 'Daily Driver Sales Bills Log'}
@@ -552,7 +576,360 @@ export const Reports: React.FC = () => {
           );
         })()}
 
-        {/* 1.5 SALES REPS REPORT */}
+        {/* 1.5 VEHICLE WISE RETURNS & DAMAGES REPORT (Minimal, Clean & Clear) */}
+        {activeTab === 'RETURNS' && returnsReport && (() => {
+          const filteredItems = returnsReport.recentReturnItems.filter(item => {
+            const matchesVehicle = selectedVehicleFilter === 'ALL'
+              ? true
+              : (selectedVehicleFilter === 'COUNTER' ? !item.lorryId : item.lorryId === selectedVehicleFilter);
+            const matchesType = returnTypeFilter === 'ALL' ? true : item.returnType === returnTypeFilter;
+            const searchLower = returnSearch.trim().toLowerCase();
+            const matchesSearch = !searchLower ? true : (
+              (item.productName && item.productName.toLowerCase().includes(searchLower)) ||
+              (item.sku && item.sku.toLowerCase().includes(searchLower)) ||
+              (item.customerName && item.customerName.toLowerCase().includes(searchLower)) ||
+              (item.orderNumber && item.orderNumber.toLowerCase().includes(searchLower)) ||
+              (item.paperBillNumber && item.paperBillNumber.toLowerCase().includes(searchLower)) ||
+              (item.vehicleNumber && item.vehicleNumber.toLowerCase().includes(searchLower)) ||
+              (item.reason && item.reason.toLowerCase().includes(searchLower))
+            );
+            return matchesVehicle && matchesType && matchesSearch;
+          });
+
+          const totalFilteredCredit = filteredItems.reduce((acc, i) => acc + i.total, 0);
+          const totalFilteredQty = filteredItems.reduce((acc, i) => acc + i.quantity, 0);
+
+          return (
+            <div className="space-y-6">
+              {/* Fleet Overview Cards (Minimal & Apple-Styled) */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* 1. Total Deductions */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 space-y-2">
+                  <div className="flex items-center justify-between text-slate-500">
+                    <span className="text-xs font-bold uppercase tracking-wider">Total Return Credit</span>
+                    <RotateCcw className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
+                    {formatMoney(returnsReport.summary.totalReturnValue)}
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center justify-between">
+                    <span>{returnsReport.summary.totalBillsWithReturns} Bills with deductions</span>
+                    <span className="font-semibold">{returnsReport.summary.totalDamageUnits + returnsReport.summary.totalResaleUnits} units</span>
+                  </div>
+                </div>
+
+                {/* 2. Damage & Expired */}
+                <div className="bg-rose-50/50 border border-rose-200/70 rounded-2xl p-4 sm:p-5 space-y-2">
+                  <div className="flex items-center justify-between text-rose-800">
+                    <span className="text-xs font-bold uppercase tracking-wider">Market Damage / Expired</span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-100 text-rose-700">Deduction</span>
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-rose-700 font-mono">
+                    {formatMoney(returnsReport.summary.totalDamageValue)}
+                  </div>
+                  <div className="text-[11px] text-rose-800/80 flex items-center justify-between">
+                    <span>{returnsReport.summary.totalDamageUnits} units quarantined</span>
+                    <span className="text-[10px] bg-white/70 px-1.5 py-0.5 rounded font-mono font-bold">Cost Rs. 0</span>
+                  </div>
+                </div>
+
+                {/* 3. Good Resellable Returns */}
+                <div className="bg-emerald-50/50 border border-emerald-200/70 rounded-2xl p-4 sm:p-5 space-y-2">
+                  <div className="flex items-center justify-between text-emerald-800">
+                    <span className="text-xs font-bold uppercase tracking-wider">Good Resale Returns</span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700">Restocked</span>
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-emerald-700 font-mono">
+                    {formatMoney(returnsReport.summary.totalResaleValue)}
+                  </div>
+                  <div className="text-[11px] text-emerald-800/80 flex items-center justify-between">
+                    <span>{returnsReport.summary.totalResaleUnits} units added back</span>
+                    <span className="text-[10px] bg-white/70 px-1.5 py-0.5 rounded font-mono font-bold">In Warehouse</span>
+                  </div>
+                </div>
+
+                {/* 4. Fleet Vehicles Active */}
+                <div className="bg-blue-50/50 border border-blue-200/70 rounded-2xl p-4 sm:p-5 space-y-2">
+                  <div className="flex items-center justify-between text-blue-800">
+                    <span className="text-xs font-bold uppercase tracking-wider">Fleet Coverage</span>
+                    <Truck className="w-4 h-4 text-blue-500" />
+                  </div>
+                  <div className="text-xl sm:text-2xl font-black text-blue-900 font-mono">
+                    {returnsReport.summary.totalVehiclesWithReturns} Vehicles
+                  </div>
+                  <div className="text-[11px] text-blue-700 flex items-center justify-between">
+                    <span>{returnsReport.summary.totalEveningUnsoldUnits} unsold route units</span>
+                    <span className="text-[10px] bg-white/70 px-1.5 py-0.5 rounded font-mono font-bold">Settled</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Vehicle Wise Summary Cards */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Vehicle-Wise Return Summaries
+                  </span>
+                  <span className="text-xs text-slate-400 font-medium">
+                    Click a vehicle to filter its line items below
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {returnsReport.vehicles.map((v) => {
+                    const isSelected = selectedVehicleFilter === (v.lorryId || 'COUNTER');
+                    const totalVal = v.totalReturnsValue;
+                    const damagePct = totalVal > 0 ? Math.round((v.damageValue / totalVal) * 100) : 0;
+                    const resalePct = totalVal > 0 ? 100 - damagePct : 0;
+
+                    return (
+                      <div
+                        key={v.lorryId || 'counter'}
+                        onClick={() => setSelectedVehicleFilter(isSelected ? 'ALL' : (v.lorryId || 'COUNTER'))}
+                        className={`cursor-pointer transition-all rounded-2xl p-4 border text-left space-y-3 ${
+                          isSelected
+                            ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400/30 shadow-sm'
+                            : 'bg-white hover:bg-slate-50 border-slate-200/80 hover:border-slate-300 shadow-2xs'
+                        }`}
+                      >
+                        {/* Vehicle Card Header */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <Truck className={`w-4 h-4 ${v.lorryId ? 'text-blue-600' : 'text-slate-500'}`} />
+                              <span className="font-bold text-sm text-slate-900 font-mono">
+                                {v.vehicleNumber}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {v.driverName} {v.routeCode && <span className="font-mono text-slate-400">({v.routeCode})</span>}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-extrabold text-slate-900 font-mono block">
+                              {formatMoney(v.totalReturnsValue)}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {v.billsWithReturnsCount} {v.billsWithReturnsCount === 1 ? 'bill' : 'bills'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Breakdown Metrics */}
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                          <div className="bg-rose-50/60 rounded-xl p-2">
+                            <span className="text-[10px] font-bold text-rose-700 block uppercase">
+                              Damaged
+                            </span>
+                            <div className="font-mono font-bold text-rose-800 text-xs">
+                              {v.damageCount} units
+                            </div>
+                            <div className="text-[10px] text-rose-600 font-mono">
+                              {formatMoney(v.damageValue)}
+                            </div>
+                          </div>
+
+                          <div className="bg-emerald-50/60 rounded-xl p-2">
+                            <span className="text-[10px] font-bold text-emerald-700 block uppercase">
+                              Resellable
+                            </span>
+                            <div className="font-mono font-bold text-emerald-800 text-xs">
+                              {v.resaleCount} units
+                            </div>
+                            <div className="text-[10px] text-emerald-600 font-mono">
+                              {formatMoney(v.resaleValue)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Visual Ratio Bar */}
+                        {totalVal > 0 && (
+                          <div className="space-y-1">
+                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                              <div
+                                style={{ width: `${damagePct}%` }}
+                                className="bg-rose-500 h-full transition-all"
+                                title={`Damage: ${damagePct}%`}
+                              />
+                              <div
+                                style={{ width: `${resalePct}%` }}
+                                className="bg-emerald-500 h-full transition-all"
+                                title={`Resale: ${resalePct}%`}
+                              />
+                            </div>
+                            <div className="flex justify-between text-[9px] font-mono text-slate-400">
+                              <span>Damage: {damagePct}%</span>
+                              <span>Resale: {resalePct}%</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Line Items Filter & Detailed Table */}
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+                  {/* Left: Vehicle and Condition Filters */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* Vehicle Quick Filter */}
+                    <button
+                      onClick={() => setSelectedVehicleFilter('ALL')}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-xl transition ${
+                        selectedVehicleFilter === 'ALL'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                      }`}
+                    >
+                      All Vehicles ({returnsReport.recentReturnItems.length})
+                    </button>
+                    {returnsReport.vehicles.map((v) => (
+                      <button
+                        key={v.lorryId || 'counter'}
+                        onClick={() => setSelectedVehicleFilter(v.lorryId || 'COUNTER')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-xl transition ${
+                          selectedVehicleFilter === (v.lorryId || 'COUNTER')
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+                        }`}
+                      >
+                        {v.vehicleNumber} ({v.totalReturnsCount})
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Right: Search & Condition Filter */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2.5 py-1">
+                      <Search className="w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={returnSearch}
+                        onChange={(e) => setReturnSearch(e.target.value)}
+                        placeholder="Search items, customer, slip..."
+                        className="text-xs bg-transparent focus:outline-none w-36 sm:w-48 text-slate-800"
+                      />
+                    </div>
+                    <select
+                      value={returnTypeFilter}
+                      onChange={(e) => setReturnTypeFilter(e.target.value as any)}
+                      className="text-xs bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 font-semibold text-slate-700 focus:outline-none"
+                    >
+                      <option value="ALL">All Conditions</option>
+                      <option value="DAMAGE">💥 Damaged Only</option>
+                      <option value="RESALE">✨ Resellable Only</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto border border-slate-200/80 rounded-2xl">
+                  <table className="w-full text-left border-collapse text-xs min-w-[800px]">
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200/80">
+                      <tr>
+                        <th className="p-3 pl-4">Date / Time</th>
+                        <th className="p-3">Vehicle & Driver</th>
+                        <th className="p-3">Bill / Slip #</th>
+                        <th className="p-3">Customer</th>
+                        <th className="p-3">Product Name & SKU</th>
+                        <th className="p-3 text-center">Condition</th>
+                        <th className="p-3 text-center">Return Qty</th>
+                        <th className="p-3 text-right">Credit Rate</th>
+                        <th className="p-3 text-right">Deduction (Rs.)</th>
+                        <th className="p-3 pr-4">Reason / Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="p-8 text-center text-slate-400">
+                            No return or damage items found matching the selected vehicle and date filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredItems.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="p-3 pl-4 whitespace-nowrap text-slate-500 font-mono text-[11px]">
+                              {new Date(item.date).toLocaleDateString()}
+                              <span className="block text-[10px] text-slate-400">
+                                {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </td>
+                            <td className="p-3 whitespace-nowrap">
+                              <span className="font-bold text-slate-900 font-mono block">
+                                {item.vehicleNumber}
+                              </span>
+                              <span className="text-[10px] text-slate-500">{item.driverName}</span>
+                            </td>
+                            <td className="p-3 whitespace-nowrap font-mono">
+                              <span className="font-semibold text-blue-600 block">
+                                {item.paperBillNumber || item.orderNumber}
+                              </span>
+                              {item.paperBillNumber && (
+                                <span className="text-[10px] text-slate-400">{item.orderNumber}</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              <span className="font-semibold text-slate-900 block max-w-[140px] truncate" title={item.customerName}>
+                                {item.customerName}
+                              </span>
+                            </td>
+                            <td className="p-3">
+                              <span className="font-bold text-slate-900 block">{item.productName}</span>
+                              <span className="font-mono text-[10px] text-slate-400">{item.sku}</span>
+                            </td>
+                            <td className="p-3 text-center whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                item.returnType === 'DAMAGE'
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-200/80'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200/80'
+                              }`}>
+                                {item.returnType === 'DAMAGE' ? '💥 Damaged' : '✨ Resellable'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-center font-mono font-bold text-slate-900">
+                              {item.quantity} {item.unit}
+                            </td>
+                            <td className="p-3 text-right font-mono text-slate-600">
+                              {formatMoney(item.unitPrice)}
+                            </td>
+                            <td className="p-3 text-right font-mono font-bold text-rose-600 whitespace-nowrap">
+                              -{formatMoney(item.total)}
+                            </td>
+                            <td className="p-3 pr-4 text-slate-500 italic max-w-[160px] truncate" title={item.reason || '—'}>
+                              {item.reason || '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    {filteredItems.length > 0 && (
+                      <tfoot className="bg-slate-50 border-t-2 border-slate-200 text-xs font-bold text-slate-900">
+                        <tr>
+                          <td colSpan={6} className="p-3 pl-4">
+                            Total Filtered Returns ({filteredItems.length} records)
+                          </td>
+                          <td className="p-3 text-center font-mono font-black text-slate-900">
+                            {totalFilteredQty}
+                          </td>
+                          <td className="p-3" />
+                          <td className="p-3 text-right font-mono font-black text-rose-600">
+                            -{formatMoney(totalFilteredCredit)}
+                          </td>
+                          <td className="p-3 pr-4" />
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 2. SALES REPS REPORT */}
         {activeTab === 'REPS' && (() => {
           if (!repReport) {
             return (

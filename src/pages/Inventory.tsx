@@ -113,6 +113,58 @@ export const Inventory: React.FC<InventoryProps> = ({ onNavigateToSuppliers }) =
         </div>
       </div>
 
+      {/* Stock Valuation & Free Issue Summary Cards */}
+      {(() => {
+        const totalInvestedCost = products.reduce((sum, p) => sum + (p.currentStock * p.costPrice), 0);
+        const totalFreeUnits = products.reduce((sum, p) => sum + (p.freeStock || 0), 0);
+        const totalFreeMarketValue = products.reduce((sum, p) => sum + ((p.freeStock || 0) * (p.unitPrice || 0)), 0);
+        const totalPhysicalUnits = products.reduce((sum, p) => sum + p.currentStock + (p.freeStock || 0), 0);
+        const totalRealizableValue = products.reduce((sum, p) => sum + ((p.currentStock + (p.freeStock || 0)) * (p.isRawMaterial ? p.costPrice : p.unitPrice)), 0);
+
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-semibold text-slate-500 block mb-1">Total Stock Cost (Invested)</span>
+              <div className="text-xl sm:text-2xl font-bold font-mono text-slate-900">
+                {formatMoney(totalInvestedCost)}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Paid inventory only • Free issue cost is Rs. 0.00</p>
+            </div>
+
+            <div className="bg-emerald-50/70 p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-emerald-200/70 shadow-2xs">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-emerald-800">Free Issue Stock</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200/60 text-emerald-900 font-mono">
+                  Cost: Rs. 0.00
+                </span>
+              </div>
+              <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-900">
+                {totalFreeUnits.toLocaleString()} <span className="text-xs font-sans font-medium text-emerald-700">units</span>
+              </div>
+              <p className="text-[11px] text-emerald-700 mt-1">
+                Sales Value: <span className="font-mono font-semibold">{formatMoney(totalFreeMarketValue)}</span>
+              </p>
+            </div>
+
+            <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-semibold text-slate-500 block mb-1">Total Physical Stock</span>
+              <div className="text-xl sm:text-2xl font-bold font-mono text-slate-900">
+                {totalPhysicalUnits.toLocaleString()} <span className="text-xs font-sans font-medium text-slate-500">units</span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Paid stock + Free issue units in warehouse</p>
+            </div>
+
+            <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-semibold text-slate-500 block mb-1">Total Stock Realizable Value</span>
+              <div className="text-xl sm:text-2xl font-bold font-mono text-blue-600">
+                {formatMoney(totalRealizableValue)}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Full commercial valuation on hand</p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Controls Bar: Search & Low Stock Toggle */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
         <div className="relative w-full sm:w-96">
@@ -183,8 +235,8 @@ export const Inventory: React.FC<InventoryProps> = ({ onNavigateToSuppliers }) =
                 <th className="px-7 py-4">SKU</th>
                 <th className="px-6 py-4">Product Name</th>
                 <th className="px-6 py-4">Category</th>
-                <th className="px-6 py-4">Unit Price</th>
-                <th className="px-6 py-4">Warehouse Stock</th>
+                <th className="px-6 py-4">Price / Cost</th>
+                <th className="px-6 py-4">Warehouse Stock (Paid + Free)</th>
                 <th className="px-6 py-4">In Lorries</th>
                 <th className="px-7 py-4 text-right">Inward / Edit</th>
               </tr>
@@ -209,7 +261,11 @@ export const Inventory: React.FC<InventoryProps> = ({ onNavigateToSuppliers }) =
 
                 return filteredProducts.map((p) => {
                   const isLow = p.currentStock <= p.minStockAlert;
-                  const totalInLorries = p.lorryStocks?.reduce((acc, s) => acc + s.quantity, 0) || 0;
+                  const regularInLorries = p.lorryStocks?.reduce((acc, s) => acc + s.quantity, 0) || 0;
+                  const freeInLorries = p.lorryStocks?.reduce((acc, s) => acc + (s.freeQuantity || 0), 0) || 0;
+                  const totalInLorries = regularInLorries + freeInLorries;
+                  const freeUnits = p.freeStock || 0;
+                  const totalStock = p.currentStock + freeUnits;
 
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
@@ -248,34 +304,69 @@ export const Inventory: React.FC<InventoryProps> = ({ onNavigateToSuppliers }) =
                             </span>
                           </div>
                         ) : (
-                          formatMoney(p.unitPrice)
+                          <div className="flex flex-col">
+                            <span>{formatMoney(p.unitPrice)}</span>
+                            <span className="text-[10px] text-slate-400 font-sans font-normal">
+                              Cost: {formatMoney(p.costPrice)}
+                            </span>
+                          </div>
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`font-mono font-bold text-sm px-3 py-1 rounded-full ${
-                              p.currentStock <= 0
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                : isLow
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-slate-100 text-slate-800'
-                            }`}
-                          >
-                            {p.currentStock} {p.unit}
-                          </span>
-                          {isLow && (
-                            <span className="text-xs font-bold text-amber-600" title={`Alert at ≤ ${p.minStockAlert}`}>
-                              (Low)
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`font-mono font-bold text-sm px-3 py-0.5 rounded-full ${
+                                p.currentStock <= 0
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : isLow
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : 'bg-slate-100 text-slate-800'
+                              }`}
+                              title="Paid Warehouse Stock"
+                            >
+                              {p.currentStock} {p.unit}
                             </span>
-                          )}
+                            {isLow && (
+                              <span className="text-xs font-bold text-amber-600" title={`Alert at ≤ ${p.minStockAlert}`}>
+                                (Low)
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80"
+                              title="Free Issue Stock (Cost: Rs. 0.00)"
+                            >
+                              +{freeUnits} Free Issue
+                            </span>
+                            {((p.damageStock || 0) > 0) && (
+                              <span
+                                className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-rose-50 text-rose-800 border border-rose-200/80"
+                                title="Damaged / Expired stock from customer returns"
+                              >
+                                {p.damageStock} Damaged
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              (Total: {totalStock})
+                            </span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="font-mono text-sm font-semibold text-blue-600 flex items-center gap-1.5">
-                          <Truck className="w-4 h-4 text-blue-500" />
-                          {totalInLorries} {p.unit}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="font-mono text-sm font-semibold text-blue-600 flex items-center gap-1.5">
+                            <Truck className="w-4 h-4 text-blue-500" />
+                            {totalInLorries} {p.unit}
+                          </span>
+                          {freeInLorries > 0 && (
+                            <span className="text-[10px] text-emerald-600 font-mono mt-0.5">
+                              ({regularInLorries} paid + {freeInLorries} free)
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-7 py-4 text-right space-x-2 whitespace-nowrap">
                         <button

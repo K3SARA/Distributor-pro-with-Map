@@ -19,6 +19,8 @@ model Product {
   unitPrice     Float // Base selling price
   costPrice     Float // Purchase cost price
   currentStock  Int      @default(0) // Warehouse main stock
+  freeStock     Int      @default(0) // Warehouse promotional free issue stock (Cost = 0)
+  damageStock   Int      @default(0) // Damaged / expired returned stock
   minStockAlert Int      @default(10)
   freeRatioBuy  Int      @default(0) // Buy X (e.g. 10)
   freeRatioGet  Int      @default(0) // Get Y Free (e.g. 1)
@@ -34,6 +36,7 @@ model Product {
   lorryStocks        LorryStock[]
   loadingItems       LorryLoadingItem[]
   purchaseOrderItems PurchaseOrderItem[]
+  orderReturns       OrderReturn[]
   recipes            Recipe[]            @relation("ProductRecipes")
   recipeItems        RecipeItem[]        @relation("RecipeComponents")
   productionRunItems ProductionRunItem[] @relation("RunConsumedItems")
@@ -45,6 +48,7 @@ model StockMovement {
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   type        String // INBOUND (Supplier), LORRY_LOAD (Out to lorry), LORRY_RETURN (Back to warehouse), ADJUSTMENT, RETURN
   quantity    Int // Movement amount
+  isFreeIssue Boolean  @default(false) // Whether this movement is for zero-cost free issue stock
   referenceId String? // Linked Order ID, Loading ID, or Supplier Invoice #
   notes       String?
   createdAt   DateTime @default(now())
@@ -92,8 +96,9 @@ model LorryStock {
   lorry     Lorry    @relation(fields: [lorryId], references: [id], onDelete: Cascade)
   productId String
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  quantity  Int      @default(0)
-  updatedAt DateTime @updatedAt
+  quantity     Int      @default(0) // Regular floating stock
+  freeQuantity Int      @default(0) // Free issue floating stock (Cost = 0)
+  updatedAt    DateTime @updatedAt
 
   @@unique([lorryId, productId])
 }
@@ -129,11 +134,13 @@ model LorryLoadingItem {
   loading        LorryLoading @relation(fields: [loadingId], references: [id], onDelete: Cascade)
   productId      String
   product        Product      @relation(fields: [productId], references: [id])
-  loadedQty      Int // Morning loaded qty
-  soldQty        Int          @default(0) // Sum of sales recorded via paper bills
-  freeQty        Int          @default(0) // Free promotional units issued
-  returnedQty    Int          @default(0) // Returned back to warehouse at settlement
-  discrepancyQty Int          @default(0) // Difference (loaded - sold - free - returned)
+  loadedQty       Int // Morning loaded qty (regular)
+  loadedFreeQty   Int          @default(0) // Morning loaded qty (free issue)
+  soldQty         Int          @default(0) // Sum of sales recorded via paper bills
+  freeQty         Int          @default(0) // Free promotional units issued
+  returnedQty     Int          @default(0) // Returned back to warehouse at settlement (regular)
+  returnedFreeQty Int          @default(0) // Returned back to warehouse at settlement (free issue)
+  discrepancyQty  Int          @default(0) // Difference (loaded - sold - free - returned)
 }
 
 // --------------------------------------------------------
@@ -181,6 +188,7 @@ model Order {
   subtotal       Float
   discountAmount Float @default(0.0)
   taxAmount      Float @default(0.0)
+  returnAmount   Float @default(0.0) // Value of returned/damaged goods deducted from bill
   netTotal       Float
   cashReceived   Float @default(0.0)
   paidAmount     Float @default(0.0) // Total amount paid against this specific bill
@@ -196,6 +204,7 @@ model Order {
   updatedAt    DateTime  @updatedAt
 
   items       OrderItem[]
+  returns     OrderReturn[]
   allocations BillPaymentAllocation[]
 }
 
@@ -209,6 +218,23 @@ model OrderItem {
   freeQuantity Int     @default(0) // Free issues given on promotion
   unitPrice    Float
   lineTotal    Float
+}
+
+model OrderReturn {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Int // Returned quantity
+  unitPrice  Float // Credit rate per unit
+  total      Float // Line total (quantity * unitPrice)
+  returnType String   @default("DAMAGE") // "DAMAGE" (market return/expired) or "RESALE" (good condition)
+  reason     String? // Return reason description
+  createdAt  DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
 }
 
 // --------------------------------------------------------
@@ -260,9 +286,10 @@ model PurchaseOrderItem {
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   productId       String
   product         Product       @relation(fields: [productId], references: [id])
-  quantity        Int // Units received into warehouse stock
-  costPrice       Float // Purchase price per unit
-  lineTotal       Float // quantity * costPrice
+  quantity     Int // Paid units received into warehouse stock
+  freeQuantity Int           @default(0) // Free issue units received from supplier (Cost = 0)
+  costPrice    Float // Purchase price per unit
+  lineTotal    Float // quantity * costPrice (freeQuantity has 0 cost)
 }
 
 // --------------------------------------------------------

@@ -28,6 +28,7 @@ export interface LorryStock {
   productId: string;
   product: Product;
   quantity: number;
+  freeQuantity?: number;
   updatedAt: string;
 }
 
@@ -37,9 +38,11 @@ export interface LorryLoadingItem {
   productId: string;
   product: Product;
   loadedQty: number;
+  loadedFreeQty?: number;
   soldQty: number;
   freeQty: number;
   returnedQty: number;
+  returnedFreeQty?: number;
   discrepancyQty: number;
 }
 
@@ -74,6 +77,8 @@ export interface Product {
   unitPrice: number;
   costPrice: number;
   currentStock: number; // Main warehouse stock
+  freeStock: number; // Warehouse promotional free issue stock (Cost = 0)
+  damageStock?: number; // Damaged / expired returned stock
   minStockAlert: number;
   freeRatioBuy?: number;
   freeRatioGet?: number;
@@ -84,6 +89,7 @@ export interface Product {
   updatedAt: string;
   lorryStocks?: {
     quantity: number;
+    freeQuantity?: number;
     lorry: Lorry;
   }[];
 }
@@ -115,6 +121,7 @@ export interface PurchaseOrderItem {
   productId: string;
   product: Product;
   quantity: number;
+  freeQuantity?: number;
   costPrice: number;
   lineTotal: number;
 }
@@ -212,6 +219,19 @@ export interface OrderItem {
   lineTotal: number;
 }
 
+export interface OrderReturn {
+  id: string;
+  orderId: string;
+  productId: string;
+  product?: Product;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  returnType: 'DAMAGE' | 'RESALE';
+  reason?: string | null;
+  createdAt?: string;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -231,6 +251,7 @@ export interface Order {
   subtotal: number;
   discountAmount: number;
   taxAmount: number;
+  returnAmount?: number;
   netTotal: number;
   cashReceived: number;
   paidAmount?: number;
@@ -243,14 +264,16 @@ export interface Order {
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
+  returns?: OrderReturn[];
 }
 
 export interface StockMovement {
   id: string;
   productId: string;
   product: Product;
-  type: 'INBOUND' | 'LORRY_LOAD' | 'LORRY_RETURN' | 'OUTBOUND' | 'ADJUSTMENT' | 'RETURN';
+  type: 'INBOUND' | 'LORRY_LOAD' | 'LORRY_RETURN' | 'OUTBOUND' | 'ADJUSTMENT' | 'RETURN' | 'DAMAGE_RETURN';
   quantity: number;
+  isFreeIssue?: boolean;
   referenceId?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -539,6 +562,61 @@ export interface LorryPerformanceReport {
     totalCashSales: number;
     totalCreditSale: number;
   })[];
+}
+
+export interface VehicleReturnItemDetail {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  paperBillNumber?: string | null;
+  date: string;
+  customerId: string;
+  customerName: string;
+  lorryId?: string | null;
+  vehicleNumber?: string | null;
+  driverName?: string | null;
+  routeName?: string | null;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  returnType: 'DAMAGE' | 'RESALE';
+  reason?: string | null;
+}
+
+export interface VehicleReturnSummary {
+  lorryId: string | null;
+  vehicleNumber: string;
+  driverName: string;
+  routeName?: string | null;
+  routeCode?: string | null;
+  damageCount: number;
+  damageValue: number;
+  resaleCount: number;
+  resaleValue: number;
+  totalReturnsCount: number;
+  totalReturnsValue: number;
+  eveningUnsoldReturnsCount: number;
+  billsWithReturnsCount: number;
+  items: VehicleReturnItemDetail[];
+}
+
+export interface VehicleReturnsReport {
+  summary: {
+    totalReturnValue: number;
+    totalDamageValue: number;
+    totalDamageUnits: number;
+    totalResaleValue: number;
+    totalResaleUnits: number;
+    totalEveningUnsoldUnits: number;
+    totalVehiclesWithReturns: number;
+    totalBillsWithReturns: number;
+  };
+  vehicles: VehicleReturnSummary[];
+  recentReturnItems: VehicleReturnItemDetail[];
 }
 
 export interface User {

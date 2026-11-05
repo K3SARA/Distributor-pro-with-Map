@@ -53,6 +53,16 @@
   background: rgba(0, 0, 0, 0.25);
 }
 
+@layer utilities {
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
 /* Print Styles */
 @media print {
   @page {

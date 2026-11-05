@@ -24,6 +24,7 @@ import { useCurrency } from '../context/CurrencyContext';
 interface InboundItemRow {
   productId: string;
   quantity: number;
+  freeQuantity?: number;
   costPrice: number;
 }
 
@@ -213,6 +214,7 @@ export const Suppliers: React.FC = () => {
       {
         productId: initialProd?.id || '',
         quantity: 50,
+        freeQuantity: 0,
         costPrice: initialProd?.costPrice || 0
       }
     ]);
@@ -229,6 +231,7 @@ export const Suppliers: React.FC = () => {
       {
         productId: target?.id || '',
         quantity: 50,
+        freeQuantity: 0,
         costPrice: target?.costPrice || 0
       }
     ]);
@@ -255,11 +258,12 @@ export const Suppliers: React.FC = () => {
     setGrnItems(grnItems.filter((_, i) => i !== index));
   };
 
-  // Calculations for GRN
+  // Calculations for GRN: Cost is strictly calculated on purchased quantity; free issues cost Rs. 0.00
   const grnTotalAmount = grnItems.reduce((acc, item) => {
     return acc + (item.quantity * item.costPrice);
   }, 0);
-  const grnTotalUnits = grnItems.reduce((acc, item) => acc + (item.quantity || 0), 0);
+  const grnTotalUnits = grnItems.reduce((acc, item) => acc + (item.quantity || 0) + (item.freeQuantity || 0), 0);
+  const grnTotalFreeUnits = grnItems.reduce((acc, item) => acc + (item.freeQuantity || 0), 0);
 
   // Auto set paid amount when total or payment status changes
   useEffect(() => {
@@ -281,7 +285,7 @@ export const Suppliers: React.FC = () => {
       return;
     }
 
-    const validItems = grnItems.filter(i => i.productId && i.quantity > 0);
+    const validItems = grnItems.filter(i => i.productId && ((i.quantity || 0) > 0 || (i.freeQuantity || 0) > 0));
     if (validItems.length === 0) {
       setErrorMessage('Please add at least one line item with quantity > 0.');
       return;
@@ -301,13 +305,14 @@ export const Suppliers: React.FC = () => {
         notes: grnNotes.trim() || undefined,
         items: validItems.map(i => ({
           productId: i.productId,
-          quantity: i.quantity,
+          quantity: i.quantity || 0,
+          freeQuantity: i.freeQuantity || 0,
           costPrice: i.costPrice
         }))
       });
 
       setSuccessMessage(
-        `Inbound Goods Receipt ${created.orderNumber} successfully received! Added ${grnTotalUnits} units directly into Central Warehouse Stock.`
+        `Inbound Goods Receipt ${created.orderNumber} successfully received! Added ${grnTotalUnits} total units (${grnTotalUnits - grnTotalFreeUnits} paid + ${grnTotalFreeUnits} free issue @ Rs. 0.00) directly into Central Warehouse Stock.`
       );
 
       setIsGRNModalOpen(false);
@@ -901,22 +906,34 @@ export const Suppliers: React.FC = () => {
                           </select>
                         </div>
 
-                        {/* Quantity */}
-                        <div className="w-28">
+                        {/* Paid Quantity */}
+                        <div className="w-24">
                           <input
                             type="number"
-                            min="1"
-                            value={item.quantity || ''}
+                            min="0"
+                            value={item.quantity !== undefined ? item.quantity : ''}
                             onChange={(e) => updateGRNItemRow(index, 'quantity', parseInt(e.target.value, 10) || 0)}
-                            placeholder="Qty"
-                            title="Quantity received"
-                            required
+                            placeholder="Paid Qty"
+                            title="Paid Quantity purchased"
                             className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center"
                           />
                         </div>
 
+                        {/* Free Issue Quantity */}
+                        <div className="w-24">
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.freeQuantity !== undefined && item.freeQuantity !== 0 ? item.freeQuantity : ''}
+                            onChange={(e) => updateGRNItemRow(index, 'freeQuantity', parseInt(e.target.value, 10) || 0)}
+                            placeholder="+Free"
+                            title="Supplier Promotional Free Issue (Cost: Rs. 0.00)"
+                            className="w-full bg-emerald-50/70 border border-emerald-300 rounded-xl px-2 py-1.5 text-xs font-bold font-mono text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                          />
+                        </div>
+
                         {/* Cost Price */}
-                        <div className="w-32">
+                        <div className="w-28">
                           <input
                             type="number"
                             step="0.01"
@@ -931,7 +948,7 @@ export const Suppliers: React.FC = () => {
                         </div>
 
                         {/* Line Total */}
-                        <div className="w-28 text-right font-mono font-bold text-xs text-slate-800">
+                        <div className="w-24 text-right font-mono font-bold text-xs text-slate-800">
                           {formatMoney(lineTotal)}
                         </div>
 

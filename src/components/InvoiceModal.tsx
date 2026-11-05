@@ -294,6 +294,34 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 ))}
               </div>
 
+              {/* Returned & Damaged Items (80mm) */}
+              {order.returns && order.returns.length > 0 && (
+                <>
+                  <div className="border-t border-black border-dashed my-1.5" />
+                  <div className="flex justify-between font-bold text-[10px] pb-1">
+                    <span>RETURNED / DAMAGED ITEMS</span>
+                    <span>DEDUCT</span>
+                  </div>
+                  <div className="border-t border-black border-dashed mb-1.5" />
+                  <div className="space-y-1 text-[10px]">
+                    {order.returns.map((ret) => (
+                      <div key={ret.id} className="leading-tight">
+                        <div className="font-bold break-words">
+                          [{ret.returnType === 'DAMAGE' ? 'DMG' : 'RET'}] {ret.product?.name || 'Product'}
+                        </div>
+                        <div className="flex justify-between pl-1">
+                          <span>
+                            {ret.quantity} {ret.product?.unit || 'pcs'} x {formatMoney(ret.unitPrice)}
+                            {ret.reason ? ` (${ret.reason})` : ''}
+                          </span>
+                          <span className="font-bold text-black">-{formatMoney(ret.total)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
               {/* Totals Section */}
               <div className="border-t border-black border-dashed my-1.5" />
               <div className="space-y-1 text-[10px]">
@@ -315,6 +343,13 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                   <div className="flex justify-between">
                     <span>Discount:</span>
                     <span>-{formatMoney(order.discountAmount)}</span>
+                  </div>
+                )}
+
+                {order.returnAmount !== undefined && order.returnAmount > 0 && (
+                  <div className="flex justify-between font-bold">
+                    <span>Returns / Damages:</span>
+                    <span>-{formatMoney(order.returnAmount)}</span>
                   </div>
                 )}
 
@@ -520,6 +555,55 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 </table>
               </div>
 
+              {/* Returned & Damaged Items Table (A4) */}
+              {order.returns && order.returns.length > 0 && (
+                <div className="border border-amber-200/80 rounded-xl overflow-x-auto bg-amber-50/20">
+                  <div className="px-3 py-2 bg-amber-50/80 border-b border-amber-200/80 text-[10px] font-bold text-amber-900 uppercase tracking-wider flex items-center justify-between">
+                    <span>Customer Returned & Damaged Items (Credit Deductions)</span>
+                    <span className="font-mono text-rose-600 font-bold">
+                      Total Return Deductions: -{formatMoney(order.returnAmount || order.returns.reduce((a, b) => a + b.total, 0))}
+                    </span>
+                  </div>
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-amber-100/40 text-slate-500 text-[10px] font-semibold uppercase tracking-wider">
+                      <tr>
+                        <th className="p-2 pl-3">Condition</th>
+                        <th className="p-2">Product Name</th>
+                        <th className="p-2 text-center">Returned Qty</th>
+                        <th className="p-2 text-right">Credit Rate</th>
+                        <th className="p-2 pr-3 text-right">Line Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100/60">
+                      {order.returns.map((ret) => (
+                        <tr key={ret.id}>
+                          <td className="p-2 pl-3">
+                            <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold ${
+                              ret.returnType === 'DAMAGE'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200/80'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200/80'
+                            }`}>
+                              {ret.returnType === 'DAMAGE' ? '💥 Damaged / Expired' : '✨ Good Resellable'}
+                            </span>
+                          </td>
+                          <td className="p-2">
+                            <p className="font-medium text-slate-900">{ret.product?.name || 'Product'}</p>
+                            {ret.reason && (
+                              <span className="text-[10px] text-slate-500 italic block">Reason: {ret.reason}</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center font-bold text-slate-900">{ret.quantity}</td>
+                          <td className="p-2 text-right font-mono text-slate-600">{formatMoney(ret.unitPrice)}</td>
+                          <td className="p-2 pr-3 text-right font-bold text-rose-600 font-mono">
+                            -{formatMoney(ret.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {/* Totals Breakdown */}
               <div className="flex justify-end pt-1">
                 <div className="w-full sm:w-64 space-y-1.5 text-xs">
@@ -539,6 +623,12 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     <div className="flex justify-between text-emerald-600 font-medium">
                       <span>Discount:</span>
                       <span className="font-mono">-{formatMoney(order.discountAmount)}</span>
+                    </div>
+                  )}
+                  {order.returnAmount !== undefined && order.returnAmount > 0 && (
+                    <div className="flex justify-between text-rose-600 font-medium">
+                      <span>Returns / Damages:</span>
+                      <span className="font-mono">-{formatMoney(order.returnAmount)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-1.5">

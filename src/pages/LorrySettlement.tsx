@@ -18,10 +18,12 @@ interface ReturnRow {
   productName: string;
   unit: string;
   loadedQty: number;
+  loadedFreeQty: number;
   soldQty: number;
   freeQty: number;
   expectedRemaining: number;
   returnedQty: number;
+  returnedFreeQty: number;
 }
 
 export const LorrySettlement: React.FC = () => {
@@ -74,16 +76,22 @@ export const LorrySettlement: React.FC = () => {
       if (active) {
         const rows: ReturnRow[] = active.items.map(item => {
           const totalOutflow = item.soldQty + (item.freeQty || 0);
-          const expected = Math.max(0, item.loadedQty - totalOutflow);
+          const totalLoaded = item.loadedQty + (item.loadedFreeQty || 0);
+          const expected = Math.max(0, totalLoaded - totalOutflow);
+          // Default: allocate remaining return to regular stock first, and free stock if remaining > loadedQty
+          const retRegular = Math.min(expected, Math.max(0, item.loadedQty - item.soldQty));
+          const retFree = Math.max(0, expected - retRegular);
           return {
             productId: item.productId,
             productName: item.product.name,
             unit: item.product.unit,
             loadedQty: item.loadedQty,
+            loadedFreeQty: item.loadedFreeQty || 0,
             soldQty: item.soldQty,
             freeQty: item.freeQty || 0,
             expectedRemaining: expected,
-            returnedQty: expected // Pre-populate with expected remaining
+            returnedQty: retRegular,
+            returnedFreeQty: retFree
           };
         });
         const expSum = active.expenses?.reduce((acc, e) => acc + e.amount, 0) || 0;
@@ -176,7 +184,8 @@ export const LorrySettlement: React.FC = () => {
         loadingId: activeLoading.id,
         returns: returnRows.map(r => ({
           productId: r.productId,
-          returnedQty: r.returnedQty || 0
+          returnedQty: r.returnedQty || 0,
+          returnedFreeQty: r.returnedFreeQty || 0
         })),
         cashHandover: parseFloat(cashHandover) || 0,
         notes: notes.trim() || undefined

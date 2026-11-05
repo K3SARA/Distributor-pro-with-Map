@@ -1250,7 +1250,7 @@ app.get('/api/products', async (req: Request, res: Response) => {
 // Create product
 app.post('/api/products', async (req: Request, res: Response) => {
   try {
-    const { sku, name, category, unit, unitPrice, costPrice, currentStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, name, category, unit, unitPrice, costPrice, currentStock, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
 
     if (!sku || !name) {
       return res.status(400).json({ error: 'SKU and Name are required.' });
@@ -1262,6 +1262,9 @@ app.post('/api/products', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Selling Unit Price is required for finished goods.' });
     }
 
+    const initialCurrentStock = parseInt(currentStock || 0, 10);
+    const initialFreeStock = parseInt(freeStock || 0, 10);
+
     const product = await prisma.product.create({
       data: {
         sku: sku.trim().toUpperCase(),
@@ -1270,7 +1273,8 @@ app.post('/api/products', async (req: Request, res: Response) => {
         unit: unit?.trim() || (isRaw ? 'Kg' : 'Unit'),
         unitPrice: isRaw ? (unitPrice ? parseFloat(unitPrice) : 0) : parseFloat(unitPrice),
         costPrice: parseFloat(costPrice || 0),
-        currentStock: parseInt(currentStock || 0, 10),
+        currentStock: initialCurrentStock,
+        freeStock: initialFreeStock,
         minStockAlert: parseInt(minStockAlert || 10, 10),
         freeRatioBuy: isRaw ? 0 : (freeRatioBuy ? parseInt(freeRatioBuy, 10) : 0),
         freeRatioGet: isRaw ? 0 : (freeRatioGet ? parseInt(freeRatioGet, 10) : 0),
@@ -1278,13 +1282,26 @@ app.post('/api/products', async (req: Request, res: Response) => {
       }
     });
 
-    if (product.currentStock > 0) {
+    if (initialCurrentStock > 0) {
       await prisma.stockMovement.create({
         data: {
           productId: product.id,
           type: 'INBOUND',
-          quantity: product.currentStock,
+          quantity: initialCurrentStock,
+          isFreeIssue: false,
           notes: isRaw ? 'Initial raw material intake stock' : 'Initial warehouse intake stock'
+        }
+      });
+    }
+
+    if (initialFreeStock > 0) {
+      await prisma.stockMovement.create({
+        data: {
+          productId: product.id,
+          type: 'INBOUND',
+          quantity: initialFreeStock,
+          isFreeIssue: true,
+          notes: 'Initial promotional free issue stock intake (Cost: Rs. 0.00)'
         }
       });
     }
@@ -1299,7 +1316,7 @@ app.post('/api/products', async (req: Request, res: Response) => {
 app.put('/api/products/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { sku, name, category, unit, unitPrice, costPrice, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, name, category, unit, unitPrice, costPrice, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
     const isRaw = isRawMaterial !== undefined ? Boolean(isRawMaterial) : undefined;
 
     const updated = await prisma.product.update({
@@ -1311,6 +1328,7 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
         unit: unit?.trim(),
         unitPrice: isRaw ? 0 : (unitPrice !== undefined ? parseFloat(unitPrice) : undefined),
         costPrice: costPrice !== undefined ? parseFloat(costPrice) : undefined,
+        freeStock: freeStock !== undefined ? parseInt(freeStock, 10) : undefined,
         minStockAlert: minStockAlert !== undefined ? parseInt(minStockAlert, 10) : undefined,
         freeRatioBuy: isRaw ? 0 : (freeRatioBuy !== undefined ? parseInt(freeRatioBuy, 10) : undefined),
         freeRatioGet: isRaw ? 0 : (freeRatioGet !== undefined ? parseInt(freeRatioGet, 10) : undefined),
@@ -1327,7 +1345,8 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
 // Inbound Stock / Adjustment (Supplier Bulk Inward / Physical Count)
 app.post('/api/products/:id/stock-adjust', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { quantity, type, notes, referenceId } = req.body;
+  const { quantity, type, notes, referenceId, isFreeIssue } = req.body;
+  const isFree = Boolean(isFreeIssue);
 
   try {
     const parsedQty = parseInt(quantity, 10);
@@ -1338,12 +1357,14 @@ app.post('/api/products/:id/stock-adjust', async (req: Request, res: Response) =
     const updatedProduct = await prisma.$transaction(async (tx) => {
       const product = await tx.product.update({
         where: { id },
-        data: {
-          currentStock: { increment: parsedQty }
-        }
+        data: isFree
+          ? { freeStock: { increment: parsedQty } }
+          : { currentStock: { increment: parsedQty } }
       });
 
-      if (product.currentStock < 0) {
+      if (isFree && product.freeStock < 0) {
+        throw new Error('Adjustment would result in negative free issue inventory.');
+      } else if (!isFree && product.currentStock < 0) {
         throw new Error('Adjustment would result in negative warehouse inventory.');
       }
 
@@ -1352,8 +1373,9 @@ app.post('/api/products/:id/stock-adjust', async (req: Request, res: Response) =
           productId: id,
           type: type || 'INBOUND',
           quantity: parsedQty,
+          isFreeIssue: isFree,
           referenceId: referenceId?.trim() || null,
-          notes: notes?.trim() || null
+          notes: notes?.trim() || (isFree ? 'Free issue stock adjustment (Cost: Rs. 0.00)' : null)
         }
       });
 
@@ -1621,18 +1643,21 @@ app.post('/api/purchase-orders', async (req: Request, res: Response) => {
       const validItems = [];
 
       for (const item of items) {
-        const qty = parseInt(item.quantity, 10);
+        const qty = parseInt(item.quantity, 10) || 0;
+        const freeQty = parseInt(item.freeQuantity, 10) || 0;
         const cost = parseFloat(item.costPrice);
 
-        if (isNaN(qty) || qty <= 0) continue;
+        if (qty <= 0 && freeQty <= 0) continue;
         if (isNaN(cost) || cost < 0) continue;
 
+        // Line total strictly charges for purchased units. Free issue units have Cost = Rs. 0.00
         const lineTotal = qty * cost;
         subtotal += lineTotal;
 
         validItems.push({
           productId: item.productId,
           quantity: qty,
+          freeQuantity: freeQty,
           costPrice: cost,
           lineTotal
         });
@@ -1685,26 +1710,44 @@ app.post('/api/purchase-orders', async (req: Request, res: Response) => {
 
       // 2. WIRE WITH WAREHOUSE STOCK FOR EACH ITEM:
       for (const item of validItems) {
-        // Increment warehouse central inventory & update cost price
+        // Increment warehouse central paid stock & free issue stock, update cost price
         await tx.product.update({
           where: { id: item.productId },
           data: {
             currentStock: { increment: item.quantity },
+            freeStock: { increment: item.freeQuantity },
             costPrice: item.costPrice,
             supplierId: supplier.id
           }
         });
 
-        // Record Inbound Stock Movement
-        await tx.stockMovement.create({
-          data: {
-            productId: item.productId,
-            type: 'INBOUND',
-            quantity: item.quantity,
-            referenceId: createdPO.orderNumber,
-            notes: `Inbound GRN from ${supplier.name}${supplierInvoiceNumber ? ` (Inv #${supplierInvoiceNumber})` : ''}`
-          }
-        });
+        // Record Inbound Regular Stock Movement
+        if (item.quantity > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: item.productId,
+              type: 'INBOUND',
+              quantity: item.quantity,
+              isFreeIssue: false,
+              referenceId: createdPO.orderNumber,
+              notes: `Inbound GRN from ${supplier.name}${supplierInvoiceNumber ? ` (Inv #${supplierInvoiceNumber})` : ''}`
+            }
+          });
+        }
+
+        // Record Inbound Free Issue Movement (Cost: Rs. 0.00)
+        if (item.freeQuantity > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: item.productId,
+              type: 'INBOUND',
+              quantity: item.freeQuantity,
+              isFreeIssue: true,
+              referenceId: createdPO.orderNumber,
+              notes: `Supplier promotional free issue from ${supplier.name} (Cost: Rs. 0.00)`
+            }
+          });
+        }
       }
 
       // 3. If unpaid balance, update supplier outstanding payable balance
@@ -1922,10 +1965,16 @@ app.post('/api/lorries/:id/load', async (req: Request, res: Response) => {
 
       // Check warehouse stock availability
       for (const item of items) {
-        if (!item.quantity || item.quantity <= 0) continue;
+        const qty = parseInt(item.quantity, 10) || 0;
+        const freeQty = parseInt(item.freeQuantity, 10) || 0;
+        if (qty <= 0 && freeQty <= 0) continue;
+
         const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } });
-        if (product.currentStock < item.quantity) {
-          throw new Error(`Insufficient warehouse stock for "${product.name}". Available: ${product.currentStock} ${product.unit}, requested: ${item.quantity}`);
+        if (qty > 0 && product.currentStock < qty) {
+          throw new Error(`Insufficient warehouse regular stock for "${product.name}". Available: ${product.currentStock} ${product.unit}, requested: ${qty}`);
+        }
+        if (freeQty > 0 && product.freeStock < freeQty) {
+          throw new Error(`Insufficient warehouse free issue stock for "${product.name}". Available: ${product.freeStock} ${product.unit}, requested: ${freeQty}`);
         }
       }
 
@@ -1944,27 +1993,47 @@ app.post('/api/lorries/:id/load', async (req: Request, res: Response) => {
 
       // Transfer stock from warehouse to lorry
       for (const item of items) {
-        const qty = parseInt(item.quantity, 10);
-        if (isNaN(qty) || qty <= 0) continue;
+        const qty = parseInt(item.quantity, 10) || 0;
+        const freeQty = parseInt(item.freeQuantity, 10) || 0;
+        if (qty <= 0 && freeQty <= 0) continue;
 
-        totalLoadedUnits += qty;
+        totalLoadedUnits += (qty + freeQty);
 
         // 1. Deduct Warehouse Stock
         await tx.product.update({
           where: { id: item.productId },
-          data: { currentStock: { decrement: qty } }
+          data: {
+            currentStock: qty > 0 ? { decrement: qty } : undefined,
+            freeStock: freeQty > 0 ? { decrement: freeQty } : undefined
+          }
         });
 
         // 2. Record Warehouse Outward Movement
-        await tx.stockMovement.create({
-          data: {
-            productId: item.productId,
-            type: 'LORRY_LOAD',
-            quantity: -qty,
-            referenceId: loadingNumber,
-            notes: `Loaded into Lorry ${lorry.vehicleNumber} (${lorry.driverName})`
-          }
-        });
+        if (qty > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: item.productId,
+              type: 'LORRY_LOAD',
+              quantity: -qty,
+              isFreeIssue: false,
+              referenceId: loadingNumber,
+              notes: `Loaded into Lorry ${lorry.vehicleNumber} (${lorry.driverName})`
+            }
+          });
+        }
+
+        if (freeQty > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: item.productId,
+              type: 'LORRY_LOAD',
+              quantity: -freeQty,
+              isFreeIssue: true,
+              referenceId: loadingNumber,
+              notes: `Free issue stock loaded into Lorry ${lorry.vehicleNumber} (${lorry.driverName})`
+            }
+          });
+        }
 
         // 3. Increment Lorry Floating Stock
         await tx.lorryStock.upsert({
@@ -1975,12 +2044,14 @@ app.post('/api/lorries/:id/load', async (req: Request, res: Response) => {
             }
           },
           update: {
-            quantity: { increment: qty }
+            quantity: { increment: qty },
+            freeQuantity: { increment: freeQty }
           },
           create: {
             lorryId,
             productId: item.productId,
-            quantity: qty
+            quantity: qty,
+            freeQuantity: freeQty
           }
         });
 
@@ -1990,8 +2061,11 @@ app.post('/api/lorries/:id/load', async (req: Request, res: Response) => {
             loadingId: newLoading.id,
             productId: item.productId,
             loadedQty: qty,
+            loadedFreeQty: freeQty,
             soldQty: 0,
+            freeQty: 0,
             returnedQty: 0,
+            returnedFreeQty: 0,
             discrepancyQty: 0
           }
         });
@@ -2048,6 +2122,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
     paperBillNumber,
     customerId,
     items,
+    returnItems,
     paymentMethod, // CASH, CREDIT, CHEQUE
     cashReceived,
     notes,
@@ -2057,8 +2132,8 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
     settlePreviousBills // optional array: [{ orderId: string, amount: number, paymentMethod?: string }]
   } = req.body;
 
-  if (!customerId || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Customer and bill items are required.' });
+  if (!customerId || ((!Array.isArray(items) || items.length === 0) && (!Array.isArray(returnItems) || returnItems.length === 0))) {
+    return res.status(400).json({ error: 'Customer and at least one bill item or return item are required.' });
   }
 
   try {
@@ -2085,11 +2160,11 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
 
       // Validate Lorry floating inventory
       for (const item of items) {
-        const qty = parseInt(item.quantity, 10);
+        const qty = parseInt(item.quantity, 10) || 0;
         const freeQty = parseInt(item.freeQuantity, 10) || 0;
-        if (isNaN(qty) || qty <= 0) continue;
+        if (qty <= 0 && freeQty <= 0) continue;
 
-        const totalNeeded = qty + (freeQty > 0 ? freeQty : 0);
+        const totalNeeded = qty + freeQty;
 
         const lorryStock = await tx.lorryStock.findUnique({
           where: {
@@ -2102,11 +2177,13 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
         });
 
         const product = lorryStock?.product || await tx.product.findUniqueOrThrow({ where: { id: item.productId } });
-        const availableInLorry = lorryStock?.quantity || 0;
+        const availableRegular = lorryStock?.quantity || 0;
+        const availableFree = lorryStock?.freeQuantity || 0;
+        const totalAvailable = availableRegular + availableFree;
 
-        if (availableInLorry < totalNeeded) {
+        if (totalAvailable < totalNeeded) {
           throw new Error(
-            `Insufficient stock on Lorry ${lorry.vehicleNumber} for "${product.name}". Available in lorry: ${availableInLorry} ${product.unit}, bill requires: ${qty} sold + ${freeQty} free (${totalNeeded} total)`
+            `Insufficient stock on Lorry ${lorry.vehicleNumber} for "${product.name}". Available in lorry: ${availableRegular} regular + ${availableFree} free (${totalAvailable} total), bill requires: ${qty} sold + ${freeQty} free (${totalNeeded} total)`
           );
         }
 
@@ -2114,6 +2191,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           ? parseFloat(item.unitPrice)
           : product.unitPrice;
 
+        // Line total and invoice subtotal strictly reflect billed units; promotional free units cost Rs. 0.00
         const lineTotal = itemUnitPrice * qty;
         subtotal += lineTotal;
 
@@ -2125,7 +2203,12 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           lineTotal
         });
 
-        // 1. Deduct from Lorry Floating Stock (both sold + free units)
+        // 1. Deduct from Lorry Floating Stock:
+        // Free issue units deduct from freeQuantity bucket first; remainder deducts from regular stock
+        const deductFromFree = Math.min(availableFree, freeQty);
+        const freeRemainder = freeQty - deductFromFree;
+        const deductFromRegular = qty + freeRemainder;
+
         await tx.lorryStock.update({
           where: {
             lorryId_productId: {
@@ -2133,7 +2216,10 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
               productId: item.productId
             }
           },
-          data: { quantity: { decrement: totalNeeded } }
+          data: {
+            quantity: deductFromRegular > 0 ? { decrement: deductFromRegular } : undefined,
+            freeQuantity: deductFromFree > 0 ? { decrement: deductFromFree } : undefined
+          }
         });
 
         // 2. Update active loading sheet sold & free quantities if exists
@@ -2145,6 +2231,67 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
               data: {
                 soldQty: { increment: qty },
                 freeQty: { increment: freeQty }
+              }
+            });
+          }
+        }
+      }
+
+      // Process Returns & Damages
+      let returnAmount = 0;
+      const orderReturnsToCreate: any[] = [];
+      if (Array.isArray(returnItems) && returnItems.length > 0) {
+        for (const ret of returnItems) {
+          const retQty = parseInt(ret.quantity, 10) || 0;
+          if (retQty <= 0) continue;
+
+          const retProduct = await tx.product.findUniqueOrThrow({ where: { id: ret.productId } });
+          const retUnitPrice = ret.unitPrice !== undefined && !isNaN(parseFloat(ret.unitPrice)) && parseFloat(ret.unitPrice) >= 0
+            ? parseFloat(ret.unitPrice)
+            : retProduct.unitPrice;
+          const lineTotal = retQty * retUnitPrice;
+          returnAmount += lineTotal;
+          const returnType = ret.returnType === 'RESALE' ? 'RESALE' : 'DAMAGE';
+
+          orderReturnsToCreate.push({
+            productId: retProduct.id,
+            quantity: retQty,
+            unitPrice: retUnitPrice,
+            total: lineTotal,
+            returnType,
+            reason: ret.reason?.trim() || (returnType === 'DAMAGE' ? 'Market return / Damaged / Expired' : 'Good condition return')
+          });
+
+          if (returnType === 'RESALE') {
+            // Good condition items returned to inventory (warehouse stock)
+            await tx.product.update({
+              where: { id: retProduct.id },
+              data: { currentStock: { increment: retQty } }
+            });
+            await tx.stockMovement.create({
+              data: {
+                productId: retProduct.id,
+                type: 'RETURN',
+                quantity: retQty,
+                isFreeIssue: false,
+                referenceId: paperBillNumber?.trim() || null,
+                notes: `Customer return in good condition (Bill #${paperBillNumber || 'Lorry'})`
+              }
+            });
+          } else {
+            // Damaged/Expired items tracked in damageStock - never mixed into sellable stock
+            await tx.product.update({
+              where: { id: retProduct.id },
+              data: { damageStock: { increment: retQty } }
+            });
+            await tx.stockMovement.create({
+              data: {
+                productId: retProduct.id,
+                type: 'DAMAGE_RETURN',
+                quantity: retQty,
+                isFreeIssue: false,
+                referenceId: paperBillNumber?.trim() || null,
+                notes: `Customer return - Damaged/Expired (Bill #${paperBillNumber || 'Lorry'}: ${ret.reason || 'Damage'})`
               }
             });
           }
@@ -2165,7 +2312,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
         discountAmount = (subtotal * discountPercentage) / 100;
       }
 
-      const netTotal = Math.max(0, subtotal - discountAmount);
+      const netTotal = Math.max(0, subtotal - discountAmount - returnAmount);
 
       const isCheque = paymentMethod === 'CHEQUE';
       const paidAmount = isCheque
@@ -2202,6 +2349,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           subtotal,
           discountAmount,
           taxAmount: 0.0,
+          returnAmount,
           netTotal,
           cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
@@ -2211,13 +2359,17 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           deliveredAt: new Date(),
           items: {
             create: orderItemsToCreate
+          },
+          returns: {
+            create: orderReturnsToCreate
           }
         } as any,
         include: {
           customer: true,
           lorry: { include: { route: true } },
           route: true,
-          items: { include: { product: true } }
+          items: { include: { product: true } },
+          returns: { include: { product: true } }
         }
       });
 
@@ -2406,41 +2558,65 @@ app.post('/api/lorries/:id/settle', async (req: Request, res: Response) => {
       });
 
       let totalReturned = 0;
+      let totalReturnedFree = 0;
 
       // Process each returned product
       for (const ret of returns || []) {
         const returnQty = parseInt(ret.returnedQty, 10) || 0;
-        if (returnQty < 0) continue;
+        const returnFreeQty = parseInt(ret.returnedFreeQty, 10) || 0;
+        if (returnQty < 0 && returnFreeQty < 0) continue;
 
-        totalReturned += returnQty;
+        totalReturned += Math.max(0, returnQty);
+        totalReturnedFree += Math.max(0, returnFreeQty);
 
-        // 1. Credit back to Main Warehouse
-        if (returnQty > 0) {
+        // 1. Credit back to Main Warehouse (Regular and Free Issue separately)
+        if (returnQty > 0 || returnFreeQty > 0) {
           await tx.product.update({
             where: { id: ret.productId },
-            data: { currentStock: { increment: returnQty } }
-          });
-
-          await tx.stockMovement.create({
             data: {
-              productId: ret.productId,
-              type: 'LORRY_RETURN',
-              quantity: returnQty,
-              referenceId: loading.loadingNumber,
-              notes: `Unsold stock returned from Lorry ${lorry.vehicleNumber}`
+              currentStock: returnQty > 0 ? { increment: returnQty } : undefined,
+              freeStock: returnFreeQty > 0 ? { increment: returnFreeQty } : undefined
             }
           });
+
+          if (returnQty > 0) {
+            await tx.stockMovement.create({
+              data: {
+                productId: ret.productId,
+                type: 'LORRY_RETURN',
+                quantity: returnQty,
+                isFreeIssue: false,
+                referenceId: loading.loadingNumber,
+                notes: `Unsold regular stock returned from Lorry ${lorry.vehicleNumber}`
+              }
+            });
+          }
+
+          if (returnFreeQty > 0) {
+            await tx.stockMovement.create({
+              data: {
+                productId: ret.productId,
+                type: 'LORRY_RETURN',
+                quantity: returnFreeQty,
+                isFreeIssue: true,
+                referenceId: loading.loadingNumber,
+                notes: `Unsold free issue stock returned from Lorry ${lorry.vehicleNumber} (Cost: Rs. 0.00)`
+              }
+            });
+          }
         }
 
         // 2. Update loading item line (returned + calculate discrepancy)
         const itemLine = loading.items.find(i => i.productId === ret.productId);
         if (itemLine) {
           const totalDispatched = itemLine.soldQty + (itemLine.freeQty || 0);
-          const discrepancy = itemLine.loadedQty - (totalDispatched + returnQty);
+          const totalLoaded = itemLine.loadedQty + (itemLine.loadedFreeQty || 0);
+          const discrepancy = totalLoaded - (totalDispatched + returnQty + returnFreeQty);
           await tx.lorryLoadingItem.update({
             where: { id: itemLine.id },
             data: {
               returnedQty: returnQty,
+              returnedFreeQty: returnFreeQty,
               discrepancyQty: discrepancy
             }
           });
@@ -2454,11 +2630,12 @@ app.post('/api/lorries/:id/settle', async (req: Request, res: Response) => {
               productId: ret.productId
             }
           },
-          update: { quantity: 0 },
+          update: { quantity: 0, freeQuantity: 0 },
           create: {
             lorryId,
             productId: ret.productId,
-            quantity: 0
+            quantity: 0,
+            freeQuantity: 0
           }
         });
       }
@@ -2469,7 +2646,7 @@ app.post('/api/lorries/:id/settle', async (req: Request, res: Response) => {
         data: {
           status: 'SETTLED',
           settledAt: new Date(),
-          totalReturnedItems: totalReturned,
+          totalReturnedItems: totalReturned + totalReturnedFree,
           cashCollected: cashHandover !== undefined ? parseFloat(cashHandover) : loading.cashCollected,
           notes: notes?.trim() || loading.notes
         },
@@ -2597,7 +2774,8 @@ app.get('/api/customers/:id/orders', async (req: Request, res: Response) => {
       include: {
         lorry: true,
         route: true,
-        items: { include: { product: true } }
+        items: { include: { product: true } },
+        returns: { include: { product: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -2621,6 +2799,7 @@ app.get('/api/customers/:id/unpaid-bills', async (req: Request, res: Response) =
         lorry: true,
         route: true,
         items: { include: { product: true } },
+        returns: { include: { product: true } },
         allocations: {
           include: { payment: true },
           orderBy: { createdAt: 'desc' }
@@ -3213,7 +3392,8 @@ app.get('/api/orders', async (req: Request, res: Response) => {
         customer: true,
         lorry: true,
         route: true,
-        items: { include: { product: true } }
+        items: { include: { product: true } },
+        returns: { include: { product: true } }
       },
       orderBy: { createdAt: 'desc' },
       take: limit ? parseInt(limit as string, 10) : undefined
@@ -3235,7 +3415,8 @@ app.get('/api/orders/:id', async (req: Request, res: Response) => {
         customer: true,
         lorry: true,
         route: true,
-        items: { include: { product: true } }
+        items: { include: { product: true } },
+        returns: { include: { product: true } }
       }
     });
     res.json(order);
@@ -3252,6 +3433,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     walkInPhone,
     paperBillNumber,
     items,
+    returnItems,
     notes,
     paymentStatus,
     paymentMethod,
@@ -3268,8 +3450,8 @@ app.post('/api/orders', async (req: Request, res: Response) => {
     return res.redirect(307, `/api/lorries/${lorryId}/bills`);
   }
 
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'At least one line item is required for the bill.' });
+  if ((!Array.isArray(items) || items.length === 0) && (!Array.isArray(returnItems) || returnItems.length === 0)) {
+    return res.status(400).json({ error: 'At least one bill item or return item is required for the bill.' });
   }
 
   try {
@@ -3310,9 +3492,13 @@ app.post('/api/orders', async (req: Request, res: Response) => {
 
         if (qty <= 0 && freeQty <= 0) continue;
 
-        if (product.currentStock < totalNeeded) {
+        const availableRegular = product.currentStock;
+        const availableFree = product.freeStock;
+        const totalAvailable = availableRegular + availableFree;
+
+        if (totalAvailable < totalNeeded) {
           throw new Error(
-            `Insufficient warehouse stock for "${product.name}". Available in warehouse: ${product.currentStock} ${product.unit}, required: ${qty} sold + ${freeQty} free (${totalNeeded} total)`
+            `Insufficient warehouse stock for "${product.name}". Available: ${availableRegular} regular + ${availableFree} free (${totalAvailable} total), required: ${qty} sold + ${freeQty} free (${totalNeeded} total)`
           );
         }
 
@@ -3320,6 +3506,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           ? parseFloat(item.unitPrice)
           : product.unitPrice;
 
+        // Line total and invoice subtotal strictly reflect billed units; promotional free units cost Rs. 0.00
         const lineTotal = itemUnitPrice * qty;
         subtotal += lineTotal;
         totalBilledUnits += qty;
@@ -3333,15 +3520,107 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           lineTotal
         });
 
-        // Deduct from Warehouse Main Stock
+        // Deduct from Warehouse Stock (Promotional free units consume freeStock first)
+        const deductFromFree = Math.min(availableFree, freeQty);
+        const freeRemainder = freeQty - deductFromFree;
+        const deductFromRegular = qty + freeRemainder;
+
         await tx.product.update({
           where: { id: product.id },
-          data: { currentStock: { decrement: totalNeeded } }
+          data: {
+            currentStock: deductFromRegular > 0 ? { decrement: deductFromRegular } : undefined,
+            freeStock: deductFromFree > 0 ? { decrement: deductFromFree } : undefined
+          }
         });
+
+        if (deductFromRegular > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              type: 'OUTBOUND',
+              quantity: -deductFromRegular,
+              isFreeIssue: false,
+              notes: `Counter sales bill order (Regular stock)`
+            }
+          });
+        }
+
+        if (deductFromFree > 0) {
+          await tx.stockMovement.create({
+            data: {
+              productId: product.id,
+              type: 'OUTBOUND',
+              quantity: -deductFromFree,
+              isFreeIssue: true,
+              notes: `Promotional free issue issued on counter sales (Cost: Rs. 0.00)`
+            }
+          });
+        }
       }
 
       if (orderItemsToCreate.length === 0) {
         throw new Error('All bill item quantities are zero.');
+      }
+
+      // Process Returns & Damages
+      let returnAmount = 0;
+      const orderReturnsToCreate: any[] = [];
+      if (Array.isArray(returnItems) && returnItems.length > 0) {
+        for (const ret of returnItems) {
+          const retQty = parseInt(ret.quantity, 10) || 0;
+          if (retQty <= 0) continue;
+
+          const retProduct = await tx.product.findUniqueOrThrow({ where: { id: ret.productId } });
+          const retUnitPrice = ret.unitPrice !== undefined && !isNaN(parseFloat(ret.unitPrice)) && parseFloat(ret.unitPrice) >= 0
+            ? parseFloat(ret.unitPrice)
+            : retProduct.unitPrice;
+          const retTotal = retQty * retUnitPrice;
+          returnAmount += retTotal;
+          const returnType = ret.returnType === 'RESALE' ? 'RESALE' : 'DAMAGE';
+
+          orderReturnsToCreate.push({
+            productId: retProduct.id,
+            quantity: retQty,
+            unitPrice: retUnitPrice,
+            total: retTotal,
+            returnType,
+            reason: ret.reason?.trim() || (returnType === 'DAMAGE' ? 'Market return / Damaged / Expired' : 'Good condition return')
+          });
+
+          if (returnType === 'RESALE') {
+            // Good condition items returned to inventory (warehouse stock)
+            await tx.product.update({
+              where: { id: retProduct.id },
+              data: { currentStock: { increment: retQty } }
+            });
+            await tx.stockMovement.create({
+              data: {
+                productId: retProduct.id,
+                type: 'RETURN',
+                quantity: retQty,
+                isFreeIssue: false,
+                referenceId: paperBillNumber?.trim() || null,
+                notes: `Counter customer return in good condition (Bill #${paperBillNumber || 'Counter'})`
+              }
+            });
+          } else {
+            // Damaged/Expired items tracked in damageStock - never mixed into sellable stock
+            await tx.product.update({
+              where: { id: retProduct.id },
+              data: { damageStock: { increment: retQty } }
+            });
+            await tx.stockMovement.create({
+              data: {
+                productId: retProduct.id,
+                type: 'DAMAGE_RETURN',
+                quantity: retQty,
+                isFreeIssue: false,
+                referenceId: paperBillNumber?.trim() || null,
+                notes: `Counter customer return - Damaged/Expired (Bill #${paperBillNumber || 'Counter'}: ${ret.reason || 'Damage'})`
+              }
+            });
+          }
+        }
       }
 
       const reqDiscountAmount = req.body.discountAmount !== undefined ? parseFloat(req.body.discountAmount) : null;
@@ -3357,7 +3636,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
         discountAmount = (subtotal * discountPercentage) / 100;
       }
 
-      const netTotal = Math.max(0, subtotal - discountAmount);
+      const netTotal = Math.max(0, subtotal - discountAmount - returnAmount);
 
       const isCheque = paymentMethod === 'CHEQUE';
       const paidAmount = isCheque
@@ -3392,6 +3671,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           subtotal,
           discountAmount,
           taxAmount: 0.0,
+          returnAmount,
           netTotal,
           cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
@@ -3399,11 +3679,15 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           notes: notes?.trim() || (walkInName ? `Walk-in: ${walkInName}` : 'Warehouse Direct Counter Sale'),
           items: {
             create: orderItemsToCreate
+          },
+          returns: {
+            create: orderReturnsToCreate
           }
         } as any,
         include: {
           customer: true,
-          items: { include: { product: true } }
+          items: { include: { product: true } },
+          returns: { include: { product: true } }
         }
       });
 
@@ -3938,6 +4222,184 @@ app.get('/api/reports/lorry-performance', async (req: Request, res: Response) =>
   }
 });
 
+// Vehicle-wise Returns & Damages Report (Minimal, Clean & Clear)
+app.get('/api/reports/vehicle-returns', async (req: Request, res: Response) => {
+  try {
+    const { from, to, lorryId } = req.query;
+    const dateFilter: any = {};
+    if (from || to) {
+      if (from) dateFilter.gte = new Date(from as string);
+      if (to) dateFilter.lte = new Date(to as string);
+    }
+
+    const orderWhere: any = {
+      status: { not: 'CANCELLED' }
+    };
+    if (from || to) {
+      orderWhere.createdAt = dateFilter;
+    }
+    if (lorryId && typeof lorryId === 'string' && lorryId !== 'ALL') {
+      if (lorryId === 'COUNTER') {
+        orderWhere.lorryId = null;
+      } else {
+        orderWhere.lorryId = lorryId;
+      }
+    }
+
+    const [lorries, returnRecords, loadings] = await Promise.all([
+      prisma.lorry.findMany({
+        include: { route: true },
+        orderBy: { vehicleNumber: 'asc' }
+      }),
+      prisma.orderReturn.findMany({
+        where: {
+          order: orderWhere
+        },
+        include: {
+          product: true,
+          order: {
+            include: {
+              customer: true,
+              lorry: { include: { route: true } },
+              route: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.lorryLoading.findMany({
+        where: (from || to) ? { date: dateFilter } : undefined,
+        select: {
+          id: true,
+          lorryId: true,
+          totalReturnedItems: true
+        }
+      })
+    ]);
+
+    // Map return records into flat details
+    const returnDetails = returnRecords.map(r => ({
+      id: r.id,
+      orderId: r.orderId,
+      orderNumber: r.order.orderNumber,
+      paperBillNumber: r.order.paperBillNumber,
+      date: r.createdAt.toISOString(),
+      customerId: r.order.customerId,
+      customerName: r.order.customer?.name || 'Customer',
+      lorryId: r.order.lorryId,
+      vehicleNumber: r.order.lorry?.vehicleNumber || (r.order.lorryId ? 'Unknown Lorry' : 'Warehouse Counter'),
+      driverName: r.order.lorry?.driverName || (r.order.lorryId ? 'Driver' : 'Counter Sale'),
+      routeName: r.order.route?.name || r.order.lorry?.route?.name || (r.order.lorryId ? 'Route' : 'Direct Counter'),
+      productId: r.productId,
+      productName: r.product?.name || 'Product',
+      sku: r.product?.sku || '',
+      unit: r.product?.unit || 'Unit',
+      quantity: r.quantity,
+      unitPrice: r.unitPrice,
+      total: r.total,
+      returnType: (r.returnType === 'RESALE' ? 'RESALE' : 'DAMAGE') as 'DAMAGE' | 'RESALE',
+      reason: r.reason
+    }));
+
+    // Build vehicle-wise summaries
+    const vehicleSummaries: any[] = lorries.map(l => {
+      const vItems = returnDetails.filter(item => item.lorryId === l.id);
+      const vOrders = new Set(vItems.map(i => i.orderId));
+
+      const damageItems = vItems.filter(i => i.returnType === 'DAMAGE');
+      const resaleItems = vItems.filter(i => i.returnType === 'RESALE');
+
+      const damageCount = damageItems.reduce((acc, i) => acc + i.quantity, 0);
+      const damageValue = damageItems.reduce((acc, i) => acc + i.total, 0);
+      const resaleCount = resaleItems.reduce((acc, i) => acc + i.quantity, 0);
+      const resaleValue = resaleItems.reduce((acc, i) => acc + i.total, 0);
+
+      const eveningUnsoldReturnsCount = loadings
+        .filter(ld => ld.lorryId === l.id)
+        .reduce((acc, ld) => acc + (ld.totalReturnedItems || 0), 0);
+
+      return {
+        lorryId: l.id,
+        vehicleNumber: l.vehicleNumber,
+        driverName: l.driverName,
+        routeName: l.route?.name || null,
+        routeCode: l.route?.code || null,
+        damageCount,
+        damageValue,
+        resaleCount,
+        resaleValue,
+        totalReturnsCount: damageCount + resaleCount,
+        totalReturnsValue: damageValue + resaleValue,
+        eveningUnsoldReturnsCount,
+        billsWithReturnsCount: vOrders.size,
+        items: vItems
+      };
+    });
+
+    // Also include Counter returns if any or if specifically requested
+    const counterItems = returnDetails.filter(item => !item.lorryId);
+    if (counterItems.length > 0 || lorryId === 'COUNTER') {
+      const counterOrders = new Set(counterItems.map(i => i.orderId));
+      const damageItems = counterItems.filter(i => i.returnType === 'DAMAGE');
+      const resaleItems = counterItems.filter(i => i.returnType === 'RESALE');
+
+      const damageCount = damageItems.reduce((acc, i) => acc + i.quantity, 0);
+      const damageValue = damageItems.reduce((acc, i) => acc + i.total, 0);
+      const resaleCount = resaleItems.reduce((acc, i) => acc + i.quantity, 0);
+      const resaleValue = resaleItems.reduce((acc, i) => acc + i.total, 0);
+
+      vehicleSummaries.push({
+        lorryId: null,
+        vehicleNumber: 'Warehouse Counter',
+        driverName: 'Direct Walk-in / Office',
+        routeName: 'Central Warehouse',
+        routeCode: 'WH-01',
+        damageCount,
+        damageValue,
+        resaleCount,
+        resaleValue,
+        totalReturnsCount: damageCount + resaleCount,
+        totalReturnsValue: damageValue + resaleValue,
+        eveningUnsoldReturnsCount: 0,
+        billsWithReturnsCount: counterOrders.size,
+        items: counterItems
+      });
+    }
+
+    // Filter if specific vehicle requested
+    const filteredVehicles = (lorryId && lorryId !== 'ALL')
+      ? vehicleSummaries.filter(v => (lorryId === 'COUNTER' ? v.lorryId === null : v.lorryId === lorryId))
+      : vehicleSummaries;
+
+    // Overall fleet totals
+    const totalReturnValue = returnDetails.reduce((sum, i) => sum + i.total, 0);
+    const totalDamageValue = returnDetails.filter(i => i.returnType === 'DAMAGE').reduce((sum, i) => sum + i.total, 0);
+    const totalDamageUnits = returnDetails.filter(i => i.returnType === 'DAMAGE').reduce((sum, i) => sum + i.quantity, 0);
+    const totalResaleValue = returnDetails.filter(i => i.returnType === 'RESALE').reduce((sum, i) => sum + i.total, 0);
+    const totalResaleUnits = returnDetails.filter(i => i.returnType === 'RESALE').reduce((sum, i) => sum + i.quantity, 0);
+    const totalEveningUnsoldUnits = loadings.reduce((sum, ld) => sum + (ld.totalReturnedItems || 0), 0);
+    const totalVehiclesWithReturns = vehicleSummaries.filter(v => v.totalReturnsCount > 0).length;
+    const totalBillsWithReturns = new Set(returnDetails.map(i => i.orderId)).size;
+
+    res.json({
+      summary: {
+        totalReturnValue,
+        totalDamageValue,
+        totalDamageUnits,
+        totalResaleValue,
+        totalResaleUnits,
+        totalEveningUnsoldUnits,
+        totalVehiclesWithReturns,
+        totalBillsWithReturns
+      },
+      vehicles: filteredVehicles,
+      recentReturnItems: returnDetails
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Sales Rep Performance, Targets & Route Distribution Report with date filtering
 app.get('/api/reports/rep-performance', async (req: Request, res: Response) => {
   try {
@@ -4216,7 +4678,8 @@ app.get('/api/reports/sales-summary', async (req: Request, res: Response) => {
         customer: true,
         lorry: true,
         route: true,
-        items: { include: { product: true } }
+        items: { include: { product: true } },
+        returns: { include: { product: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -4442,7 +4905,8 @@ app.get('/api/reports/profit-and-loss', async (req: Request, res: Response) => {
         const soldQty = item.quantity;
         const freeQty = item.freeQuantity || 0;
         const itemCogs = soldQty * prod.costPrice;
-        const itemFreeCost = freeQty * prod.costPrice;
+        // Cost is NOT counted on free issues (free promotional units are acquired at Rs. 0.00 cost)
+        const itemFreeCost = 0;
         const itemLineTotal = item.lineTotal;
 
         cogs += itemCogs;

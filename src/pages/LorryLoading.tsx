@@ -18,6 +18,7 @@ import { useCurrency } from '../context/CurrencyContext';
 interface LoadingRow {
   productId: string;
   quantity: number;
+  freeQuantity?: number;
 }
 
 export const LorryLoading: React.FC = () => {
@@ -133,7 +134,7 @@ export const LorryLoading: React.FC = () => {
   const selectedLorry = lorries.find(l => l.id === selectedLorryId);
 
   const addRow = () => {
-    setLoadingRows([...loadingRows, { productId: '', quantity: 0 }]);
+    setLoadingRows([...loadingRows, { productId: '', quantity: 0, freeQuantity: 0 }]);
   };
 
   const updateRow = (index: number, field: keyof LoadingRow, value: any) => {
@@ -144,20 +145,21 @@ export const LorryLoading: React.FC = () => {
 
   const removeRow = (index: number) => {
     if (loadingRows.length === 1) {
-      setLoadingRows([{ productId: '', quantity: 0 }]);
+      setLoadingRows([{ productId: '', quantity: 0, freeQuantity: 0 }]);
       return;
     }
     setLoadingRows(loadingRows.filter((_, i) => i !== index));
   };
 
   const calculateTotalUnits = () => {
-    return loadingRows.reduce((sum, r) => sum + (parseInt(r.quantity as any, 10) || 0), 0);
+    return loadingRows.reduce((sum, r) => sum + (parseInt(r.quantity as any, 10) || 0) + (parseInt(r.freeQuantity as any, 10) || 0), 0);
   };
 
   const calculateTotalEstimatedValue = () => {
     return loadingRows.reduce((sum, r) => {
       const p = warehouseProducts.find(item => item.id === r.productId);
-      return sum + (p ? p.unitPrice * (parseInt(r.quantity as any, 10) || 0) : 0);
+      const totalUnits = (parseInt(r.quantity as any, 10) || 0) + (parseInt(r.freeQuantity as any, 10) || 0);
+      return sum + (p ? p.unitPrice * totalUnits : 0);
     }, 0);
   };
 
@@ -166,7 +168,7 @@ export const LorryLoading: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const validRows = loadingRows.filter(r => r.productId && r.quantity > 0);
+    const validRows = loadingRows.filter(r => r.productId && ((r.quantity > 0) || ((r.freeQuantity || 0) > 0)));
     if (validRows.length === 0) {
       setErrorMessage('Please add at least one product with a quantity greater than zero.');
       return;
@@ -175,18 +177,30 @@ export const LorryLoading: React.FC = () => {
     // Verify warehouse inventory
     for (const row of validRows) {
       const prod = warehouseProducts.find(p => p.id === row.productId);
-      if (prod && prod.currentStock < row.quantity) {
-        setErrorMessage(
-          `Cannot load ${row.quantity} of "${prod.name}". Only ${prod.currentStock} ${prod.unit} available in warehouse.`
-        );
-        return;
+      if (prod) {
+        if (prod.currentStock < row.quantity) {
+          setErrorMessage(
+            `Cannot load ${row.quantity} regular units of "${prod.name}". Only ${prod.currentStock} ${prod.unit} available in warehouse.`
+          );
+          return;
+        }
+        if ((row.freeQuantity || 0) > (prod.freeStock || 0)) {
+          setErrorMessage(
+            `Cannot load ${row.freeQuantity} free issue units of "${prod.name}". Only ${prod.freeStock || 0} ${prod.unit} free stock available in warehouse.`
+          );
+          return;
+        }
       }
     }
 
     try {
       setSubmitting(true);
       const res = await LorryService.loadMorningStock(selectedLorryId, {
-        items: validRows,
+        items: validRows.map(r => ({
+          productId: r.productId,
+          quantity: r.quantity || 0,
+          freeQuantity: r.freeQuantity || 0
+        })),
         notes: notes.trim() || undefined
       });
 
@@ -197,7 +211,7 @@ export const LorryLoading: React.FC = () => {
         localStorage.removeItem(DRAFT_KEY);
       } catch (e) {}
       setHasDraft(false);
-      setLoadingRows([{ productId: '', quantity: 0 }]);
+      setLoadingRows([{ productId: '', quantity: 0, freeQuantity: 0 }]);
       setNotes('');
 
       // Refresh data
@@ -356,40 +370,64 @@ export const LorryLoading: React.FC = () => {
                         <option value="">-- Choose Item to Load --</option>
                         {warehouseProducts.map((p) => (
                           <option key={p.id} value={p.id}>
-                            {p.sku} - {p.name} (Warehouse: {p.currentStock} {p.unit}) - {formatMoney(p.unitPrice)}
+                            {p.sku} - {p.name} (Warehouse: {p.currentStock} paid + {p.freeStock || 0} free) - {formatMoney(p.unitPrice)}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    {/* Quantity to Load */}
-                    <div className="w-full sm:w-36">
+                    {/* Quantity to Load (Paid) */}
+                    <div className="w-full sm:w-28">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                        Quantity ({selectedProd?.unit || 'Units'})
+                        Paid Qty
                       </label>
                       <input
                         type="number"
-                        min="1"
+                        min="0"
                         max={selectedProd ? selectedProd.currentStock : 9999}
-                        value={row.quantity || ''}
+                        value={row.quantity !== undefined ? row.quantity : ''}
                         onChange={(e) => updateRow(index, 'quantity', parseInt(e.target.value, 10) || 0)}
-                        required
                         placeholder="0"
-                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center"
+                      />
+                    </div>
+
+                    {/* Free Issue to Load */}
+                    <div className="w-full sm:w-28">
+                      <label className="text-xs font-bold text-emerald-700 uppercase tracking-wider block mb-1.5">
+                        +Free Qty
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={selectedProd ? (selectedProd.freeStock || 0) : 9999}
+                        value={row.freeQuantity !== undefined && row.freeQuantity !== 0 ? row.freeQuantity : ''}
+                        onChange={(e) => updateRow(index, 'freeQuantity', parseInt(e.target.value, 10) || 0)}
+                        placeholder="0"
+                        title="Free issue stock to load (Cost: Rs. 0.00)"
+                        className="w-full bg-emerald-50/60 border border-emerald-300 rounded-xl px-3 py-2.5 text-sm font-bold font-mono text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-center"
                       />
                     </div>
 
                     {/* Stock available badge & Remove */}
                     <div className="flex items-center gap-2 self-end sm:self-center pt-2 sm:pt-4">
                       {selectedProd && (
-                        <span
-                          className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${selectedProd.currentStock >= row.quantity
-                              ? 'bg-slate-200 text-slate-700'
-                              : 'bg-rose-100 text-rose-700'
+                        <div className="flex flex-col text-right">
+                          <span
+                            className={`text-xs font-semibold px-2 py-0.5 rounded-md ${
+                              selectedProd.currentStock >= row.quantity
+                                ? 'bg-slate-200 text-slate-700'
+                                : 'bg-rose-100 text-rose-700'
                             }`}
-                        >
-                          Avail: {selectedProd.currentStock}
-                        </span>
+                          >
+                            Paid: {selectedProd.currentStock}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono mt-0.5"
+                          >
+                            Free: {selectedProd.freeStock || 0}
+                          </span>
+                        </div>
                       )}
                       <button
                         type="button"

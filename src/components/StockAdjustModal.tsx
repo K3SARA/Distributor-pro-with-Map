@@ -16,6 +16,7 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
   onClose,
   onAdjusted
 }) => {
+  const [stockCategory, setStockCategory] = useState<'REGULAR' | 'FREE_ISSUE'>('REGULAR');
   const [type, setType] = useState<'INBOUND' | 'ADJUSTMENT'>('INBOUND');
   const [quantity, setQuantity] = useState('');
   const [referenceId, setReferenceId] = useState('');
@@ -40,6 +41,7 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
       await ProductService.adjustStock(product.id, {
         quantity: type === 'INBOUND' ? Math.abs(qty) : qty, // Adjustment can be negative or positive
         type,
+        isFreeIssue: stockCategory === 'FREE_ISSUE',
         referenceId,
         notes
       });
@@ -75,13 +77,61 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
         )}
 
         <form onSubmit={handleSubmit} className="p-5 sm:p-7 space-y-3.5 sm:space-y-4 overflow-y-auto">
-          <div className="bg-slate-50 p-4 rounded-2xl flex items-center justify-between text-sm">
-            <span className="text-slate-500 font-medium">Current Stock on Hand:</span>
-            <span className="font-bold text-slate-900 text-base">
-              {product.currentStock} {product.unit}
-            </span>
+          {/* Current Stock Breakdown */}
+          <div className="bg-slate-50 p-4 rounded-2xl space-y-2 text-sm border border-slate-200/60">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 font-medium">Regular Paid Stock:</span>
+              <span className="font-bold text-slate-900 font-mono text-base">
+                {product.currentStock} {product.unit}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1 border-t border-slate-200/60">
+              <div className="flex items-center gap-1.5">
+                <span className="text-emerald-700 font-medium">Free Issue Stock:</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono">
+                  Cost: Rs. 0.00
+                </span>
+              </div>
+              <span className="font-bold text-emerald-800 font-mono text-base">
+                {product.freeStock || 0} {product.unit}
+              </span>
+            </div>
           </div>
 
+          {/* Stock Bucket Target Selector */}
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+              Stock Target Bucket *
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setStockCategory('REGULAR')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition text-center ${
+                  stockCategory === 'REGULAR'
+                    ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-2xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Regular Stock
+                <span className="block text-[10px] font-normal text-slate-400 mt-0.5">Purchased paid stock</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStockCategory('FREE_ISSUE')}
+                className={`py-2 px-3 rounded-xl text-xs font-bold border transition text-center ${
+                  stockCategory === 'FREE_ISSUE'
+                    ? 'bg-emerald-50 border-emerald-400 text-emerald-800 shadow-2xs'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Free Issue Stock
+                <span className="block text-[10px] font-normal text-emerald-600 mt-0.5">Promotional • Cost: Rs. 0.00</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Movement Type */}
           <div className="flex gap-2">
             <button
               type="button"
@@ -92,7 +142,7 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
                   : 'bg-white border-slate-200 text-slate-600'
               }`}
             >
-              <ArrowDownRight className="w-4 h-4 text-emerald-600" /> Inbound Stock Intake
+              <ArrowDownRight className="w-4 h-4 text-emerald-600" /> Inbound Intake
             </button>
             <button
               type="button"
@@ -103,7 +153,7 @@ export const StockAdjustModal: React.FC<StockAdjustModalProps> = ({
                   : 'bg-white border-slate-200 text-slate-600'
               }`}
             >
-              <ArrowUpRight className="w-4 h-4 text-amber-600" /> Stock Audit Adjustment
+              <ArrowUpRight className="w-4 h-4 text-amber-600" /> Audit Adjustment
             </button>
           </div>
 
