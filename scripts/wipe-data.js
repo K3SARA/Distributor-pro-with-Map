@@ -12,7 +12,8 @@ async function wipeAll() {
     console.log('-> Clearing Customer Payments...');
     await prisma.customerPayment.deleteMany();
 
-    console.log('-> Clearing Order Items...');
+    console.log('-> Clearing Order Items & Returns...');
+    await prisma.orderReturn.deleteMany();
     await prisma.orderItem.deleteMany();
 
     console.log('-> Clearing Orders / Invoices...');
@@ -50,6 +51,12 @@ async function wipeAll() {
 
     console.log('-> Clearing Recipes / BOMs...');
     await prisma.recipe.deleteMany();
+
+    console.log('-> Clearing Payroll & HR records...');
+    await prisma.payroll.deleteMany();
+    await prisma.salaryAdvance.deleteMany();
+    await prisma.attendance.deleteMany();
+    await prisma.employee.deleteMany();
 
     // 2. Master Data
     console.log('-> Clearing Customers...');
