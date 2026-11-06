@@ -59,16 +59,13 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         backgroundColor: '#8681b4'
       }}
     >
-      {/* Top Left Brand Logo (Ref: J&co. SOFTWARE SOLUTIONS) */}
+      {/* Top Left Brand Logo (J&co. SOFTWARE SOLUTIONS) */}
       <div className="absolute top-6 left-6 sm:top-10 sm:left-12 z-20">
-        <div className="flex flex-col">
-          <span className="text-xl sm:text-2xl font-bold tracking-tight text-slate-800">
-            Samantha&co.
-          </span>
-          <span className="text-[9px] sm:text-[10px] tracking-[0.25em] font-semibold text-slate-600 uppercase mt-0.5">
-            DISTRIBUTOR SOLUTIONS
-          </span>
-        </div>
+        <img
+          src="/jco-logo.png"
+          alt="J&co. Software Solutions"
+          className="h-9 sm:h-12 w-auto object-contain drop-shadow-xs select-none"
+        />
       </div>
 
       {/* Hyper-Minimal White Container (Ref: White Box Login) */}
