@@ -121,12 +121,32 @@ export const MapView: React.FC<MapViewProps> = ({
       attributionControl: false
     });
 
-    // Add Tile Layer (CartoDB Voyager - crisp, fast, global CDN cached cartography)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // Add Tile Layer (Supports Mapbox, Custom Tile Provider, or Free CartoDB/OpenStreetMap default)
+    const mapboxToken = (import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.VITE_MAP_API_KEY || '').trim();
+    const customTileUrl = (import.meta.env.VITE_MAP_TILE_URL || '').trim();
+
+    let tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    let tileOptions: L.TileLayerOptions = {
       maxZoom: 20,
       subdomains: 'abcd',
       attribution: '© OpenStreetMap, © CARTO'
-    }).addTo(map);
+    };
+
+    if (customTileUrl) {
+      tileUrl = customTileUrl;
+      tileOptions = { maxZoom: 20, attribution: '© Map Provider' };
+    } else if (mapboxToken.startsWith('pk.')) {
+      // High-resolution Mapbox Streets v12 tiles
+      tileUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}?access_token=${mapboxToken}`;
+      tileOptions = {
+        maxZoom: 20,
+        tileSize: 512,
+        zoomOffset: -1,
+        attribution: '© Mapbox © OpenStreetMap'
+      };
+    }
+
+    L.tileLayer(tileUrl, tileOptions).addTo(map);
 
     // Zoom control at bottom right for ergonomic mobile & desktop access
     L.control.zoom({ position: 'bottomright' }).addTo(map);
