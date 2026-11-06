@@ -551,7 +551,11 @@ app.get('/api/backup/export', async (_req: Request, res: Response) => {
       billPaymentAllocations,
       expenses,
       recipes,
-      productionRuns
+      productionRuns,
+      employees,
+      attendances,
+      salaryAdvances,
+      payrolls
     ] = await Promise.all([
       prisma.user.findMany(),
       prisma.supplier.findMany(),
@@ -561,12 +565,16 @@ app.get('/api/backup/export', async (_req: Request, res: Response) => {
       prisma.lorryStock.findMany(),
       prisma.customer.findMany(),
       prisma.lorryLoading.findMany({ include: { items: true } }),
-      prisma.order.findMany({ include: { items: true } }),
+      prisma.order.findMany({ include: { items: true, returns: true } }),
       prisma.customerPayment.findMany(),
       prisma.billPaymentAllocation.findMany(),
       prisma.expense.findMany(),
       prisma.recipe.findMany({ include: { items: true } }),
-      prisma.productionRun.findMany({ include: { items: true } })
+      prisma.productionRun.findMany({ include: { items: true } }),
+      prisma.employee.findMany(),
+      prisma.attendance.findMany(),
+      prisma.salaryAdvance.findMany(),
+      prisma.payroll.findMany()
     ]);
 
     const backupPayload = {
@@ -586,7 +594,11 @@ app.get('/api/backup/export', async (_req: Request, res: Response) => {
         allocations: billPaymentAllocations.length,
         expenses: expenses.length,
         recipes: recipes.length,
-        productionRuns: productionRuns.length
+        productionRuns: productionRuns.length,
+        employees: employees.length,
+        attendances: attendances.length,
+        salaryAdvances: salaryAdvances.length,
+        payrolls: payrolls.length
       },
       data: {
         settings,
@@ -603,7 +615,11 @@ app.get('/api/backup/export', async (_req: Request, res: Response) => {
         billPaymentAllocations,
         expenses,
         recipes,
-        productionRuns
+        productionRuns,
+        employees,
+        attendances,
+        salaryAdvances,
+        payrolls
       }
     };
 
@@ -641,7 +657,11 @@ app.post('/api/backup/import', async (req: Request, res: Response) => {
       billPaymentAllocations = [],
       expenses = [],
       recipes = [],
-      productionRuns = []
+      productionRuns = [],
+      employees = [],
+      attendances = [],
+      salaryAdvances = [],
+      payrolls = []
     } = data;
 
     // 1. Settings
@@ -964,6 +984,33 @@ app.post('/api/backup/import', async (req: Request, res: Response) => {
           });
         }
       }
+
+      if (Array.isArray(ord.returns)) {
+        for (const ret of ord.returns) {
+          await prisma.orderReturn.upsert({
+            where: { id: ret.id },
+            update: {
+              orderId: ord.id,
+              productId: ret.productId,
+              quantity: ret.quantity || 0,
+              unitPrice: ret.unitPrice || 0,
+              total: ret.total || 0,
+              returnType: ret.returnType || 'DAMAGE',
+              reason: ret.reason || null
+            },
+            create: {
+              id: ret.id,
+              orderId: ord.id,
+              productId: ret.productId,
+              quantity: ret.quantity || 0,
+              unitPrice: ret.unitPrice || 0,
+              total: ret.total || 0,
+              returnType: ret.returnType || 'DAMAGE',
+              reason: ret.reason || null
+            }
+          });
+        }
+      }
     }
 
     // 11. Customer Payments
@@ -1162,6 +1209,184 @@ app.post('/api/backup/import', async (req: Request, res: Response) => {
       }
     }
 
+    // 15. Employees
+    for (const emp of employees) {
+      await prisma.employee.upsert({
+        where: { id: emp.id },
+        update: {
+          employeeNumber: emp.employeeNumber,
+          fullName: emp.fullName,
+          callingName: emp.callingName || null,
+          nicNumber: emp.nicNumber || null,
+          phone: emp.phone,
+          address: emp.address || null,
+          designation: emp.designation,
+          department: emp.department || 'SALES_FLEET',
+          employmentType: emp.employmentType || 'FULL_TIME',
+          joinDate: new Date(emp.joinDate || Date.now()),
+          status: emp.status || 'ACTIVE',
+          basicSalary: emp.basicSalary || 0,
+          dailyRate: emp.dailyRate || 0,
+          otHourlyRate: emp.otHourlyRate || 0,
+          allowances: emp.allowances || 0,
+          commissionRate: emp.commissionRate || 0,
+          bankName: emp.bankName || null,
+          branchName: emp.branchName || null,
+          accountNumber: emp.accountNumber || null,
+          epfNumber: emp.epfNumber || null,
+          userId: emp.userId || null,
+          lorryId: emp.lorryId || null,
+          notes: emp.notes || null
+        },
+        create: {
+          id: emp.id,
+          employeeNumber: emp.employeeNumber,
+          fullName: emp.fullName,
+          callingName: emp.callingName || null,
+          nicNumber: emp.nicNumber || null,
+          phone: emp.phone,
+          address: emp.address || null,
+          designation: emp.designation,
+          department: emp.department || 'SALES_FLEET',
+          employmentType: emp.employmentType || 'FULL_TIME',
+          joinDate: new Date(emp.joinDate || Date.now()),
+          status: emp.status || 'ACTIVE',
+          basicSalary: emp.basicSalary || 0,
+          dailyRate: emp.dailyRate || 0,
+          otHourlyRate: emp.otHourlyRate || 0,
+          allowances: emp.allowances || 0,
+          commissionRate: emp.commissionRate || 0,
+          bankName: emp.bankName || null,
+          branchName: emp.branchName || null,
+          accountNumber: emp.accountNumber || null,
+          epfNumber: emp.epfNumber || null,
+          userId: emp.userId || null,
+          lorryId: emp.lorryId || null,
+          notes: emp.notes || null
+        }
+      });
+    }
+
+    // 16. Attendances
+    for (const att of attendances) {
+      await prisma.attendance.upsert({
+        where: { id: att.id },
+        update: {
+          employeeId: att.employeeId,
+          date: new Date(att.date),
+          status: att.status || 'PRESENT',
+          checkInTime: att.checkInTime || null,
+          checkOutTime: att.checkOutTime || null,
+          otHours: att.otHours || 0,
+          notes: att.notes || null
+        },
+        create: {
+          id: att.id,
+          employeeId: att.employeeId,
+          date: new Date(att.date),
+          status: att.status || 'PRESENT',
+          checkInTime: att.checkInTime || null,
+          checkOutTime: att.checkOutTime || null,
+          otHours: att.otHours || 0,
+          notes: att.notes || null
+        }
+      });
+    }
+
+    // 17. Salary Advances
+    for (const adv of salaryAdvances) {
+      await prisma.salaryAdvance.upsert({
+        where: { id: adv.id },
+        update: {
+          advanceNumber: adv.advanceNumber,
+          employeeId: adv.employeeId,
+          amount: adv.amount,
+          date: new Date(adv.date),
+          reason: adv.reason || null,
+          paymentMethod: adv.paymentMethod || 'CASH',
+          status: adv.status || 'PENDING',
+          payrollId: adv.payrollId || null,
+          notes: adv.notes || null
+        },
+        create: {
+          id: adv.id,
+          advanceNumber: adv.advanceNumber,
+          employeeId: adv.employeeId,
+          amount: adv.amount,
+          date: new Date(adv.date),
+          reason: adv.reason || null,
+          paymentMethod: adv.paymentMethod || 'CASH',
+          status: adv.status || 'PENDING',
+          payrollId: adv.payrollId || null,
+          notes: adv.notes || null
+        }
+      });
+    }
+
+    // 18. Payrolls
+    for (const pay of payrolls) {
+      await prisma.payroll.upsert({
+        where: { id: pay.id },
+        update: {
+          payslipNumber: pay.payslipNumber,
+          employeeId: pay.employeeId,
+          month: pay.month,
+          year: pay.year,
+          workedDays: pay.workedDays || 0,
+          absentDays: pay.absentDays || 0,
+          leaveDays: pay.leaveDays || 0,
+          otHours: pay.otHours || 0,
+          basicSalary: pay.basicSalary || 0,
+          otAmount: pay.otAmount || 0,
+          allowances: pay.allowances || 0,
+          salesCommission: pay.salesCommission || 0,
+          performanceBonus: pay.performanceBonus || 0,
+          grossEarnings: pay.grossEarnings || 0,
+          advancesDeducted: pay.advancesDeducted || 0,
+          epfDeduction: pay.epfDeduction || 0,
+          employerEpf: pay.employerEpf || 0,
+          employerEtf: pay.employerEtf || 0,
+          otherDeductions: pay.otherDeductions || 0,
+          totalDeductions: pay.totalDeductions || 0,
+          netPayable: pay.netPayable || 0,
+          paymentStatus: pay.paymentStatus || 'PAID',
+          paymentMethod: pay.paymentMethod || 'CASH',
+          paidAt: pay.paidAt ? new Date(pay.paidAt) : null,
+          expenseId: pay.expenseId || null,
+          notes: pay.notes || null
+        },
+        create: {
+          id: pay.id,
+          payslipNumber: pay.payslipNumber,
+          employeeId: pay.employeeId,
+          month: pay.month,
+          year: pay.year,
+          workedDays: pay.workedDays || 0,
+          absentDays: pay.absentDays || 0,
+          leaveDays: pay.leaveDays || 0,
+          otHours: pay.otHours || 0,
+          basicSalary: pay.basicSalary || 0,
+          otAmount: pay.otAmount || 0,
+          allowances: pay.allowances || 0,
+          salesCommission: pay.salesCommission || 0,
+          performanceBonus: pay.performanceBonus || 0,
+          grossEarnings: pay.grossEarnings || 0,
+          advancesDeducted: pay.advancesDeducted || 0,
+          epfDeduction: pay.epfDeduction || 0,
+          employerEpf: pay.employerEpf || 0,
+          employerEtf: pay.employerEtf || 0,
+          otherDeductions: pay.otherDeductions || 0,
+          totalDeductions: pay.totalDeductions || 0,
+          netPayable: pay.netPayable || 0,
+          paymentStatus: pay.paymentStatus || 'PAID',
+          paymentMethod: pay.paymentMethod || 'CASH',
+          paidAt: pay.paidAt ? new Date(pay.paidAt) : null,
+          expenseId: pay.expenseId || null,
+          notes: pay.notes || null
+        }
+      });
+    }
+
     return res.json({
       success: true,
       message: 'Cloud backup successfully restored into database!',
@@ -1177,7 +1402,11 @@ app.post('/api/backup/import', async (req: Request, res: Response) => {
         payments: customerPayments.length,
         expenses: expenses.length,
         recipes: recipes.length,
-        productionRuns: productionRuns.length
+        productionRuns: productionRuns.length,
+        employees: employees.length,
+        attendances: attendances.length,
+        salaryAdvances: salaryAdvances.length,
+        payrolls: payrolls.length
       }
     });
   } catch (err: any) {
@@ -1191,12 +1420,16 @@ app.post('/api/database/wipe-all', async (_req: Request, res: Response) => {
   try {
     await prisma.billPaymentAllocation.deleteMany();
     await prisma.customerPayment.deleteMany();
+    await prisma.orderReturn.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
     await prisma.lorryLoadingItem.deleteMany();
     await prisma.lorryLoading.deleteMany();
     await prisma.purchaseOrderItem.deleteMany();
     await prisma.purchaseOrder.deleteMany();
+    await prisma.payroll.deleteMany();
+    await prisma.salaryAdvance.deleteMany();
+    await prisma.attendance.deleteMany();
     await prisma.expense.deleteMany();
     await prisma.lorryStock.deleteMany();
     await prisma.stockMovement.deleteMany();
@@ -1207,6 +1440,7 @@ app.post('/api/database/wipe-all', async (_req: Request, res: Response) => {
     await prisma.customer.deleteMany();
     await prisma.product.deleteMany();
     await prisma.supplier.deleteMany();
+    await prisma.employee.deleteMany();
     await prisma.user.deleteMany();
     await prisma.lorry.deleteMany();
     await prisma.route.deleteMany();
