@@ -79,7 +79,7 @@ async function syncFleetAndRepsToEmployees() {
   try {
     const [reps, lorries] = await Promise.all([
       prisma.user.findMany({
-        where: { role: 'REP' },
+        where: { role: { in: ['REP', 'rep'] } },
         include: { lorry: true }
       }),
       prisma.lorry.findMany()
@@ -87,23 +87,35 @@ async function syncFleetAndRepsToEmployees() {
 
     // 1. Sync Sales Reps into Employee directory
     for (const rep of reps) {
+      const trimmedRepName = rep.fullName.trim();
+      const callingName = rep.username?.trim() || trimmedRepName.split(' ')[0];
+      const repPhone = rep.phone?.trim() || null;
+      const expectedStatus = rep.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+
+      // 1. Try finding employee by linked userId
       let emp = await prisma.employee.findFirst({
-        where: {
-          OR: [
-            { userId: rep.id },
-            { fullName: rep.fullName.trim() }
-          ]
-        }
+        where: { userId: rep.id }
       });
+
+      // 2. If not found by userId, try matching unlinked employee by fullName or callingName (case-insensitive)
+      if (!emp) {
+        const allEmps = await prisma.employee.findMany();
+        emp = allEmps.find(e =>
+          !e.userId && (
+            e.fullName.trim().toLowerCase() === trimmedRepName.toLowerCase() ||
+            (e.callingName && e.callingName.trim().toLowerCase() === rep.username.trim().toLowerCase())
+          )
+        ) || null;
+      }
 
       if (!emp) {
         const employeeNumber = await generateNextEmployeeNumber();
         await prisma.employee.create({
           data: {
             employeeNumber,
-            fullName: rep.fullName.trim(),
-            callingName: rep.username,
-            phone: rep.phone?.trim() || '077 000 0000',
+            fullName: trimmedRepName,
+            callingName,
+            phone: repPhone || '077 000 0000',
             designation: 'Sales Representative',
             department: 'SALES_FLEET',
             employmentType: 'FULL_TIME',
@@ -113,16 +125,17 @@ async function syncFleetAndRepsToEmployees() {
             commissionRate: 1.5,
             userId: rep.id,
             lorryId: rep.lorryId || null,
-            status: rep.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+            status: expectedStatus,
             joinDate: rep.createdAt || new Date()
           }
         });
       } else {
         const updateData: any = {};
         if (emp.userId !== rep.id) updateData.userId = rep.id;
+        if (emp.fullName !== trimmedRepName) updateData.fullName = trimmedRepName;
+        if (callingName && emp.callingName !== callingName) updateData.callingName = callingName;
+        if (repPhone && emp.phone !== repPhone) updateData.phone = repPhone;
         if (emp.lorryId !== (rep.lorryId || null)) updateData.lorryId = rep.lorryId || null;
-        if (rep.phone && (!emp.phone || emp.phone === '077 000 0000')) updateData.phone = rep.phone.trim();
-        const expectedStatus = rep.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
         if (emp.status !== expectedStatus) updateData.status = expectedStatus;
 
         if (Object.keys(updateData).length > 0) {
@@ -139,6 +152,10 @@ async function syncFleetAndRepsToEmployees() {
       if (!lorry.driverName || lorry.driverName.trim() === '') continue;
 
       const trimmedDriverName = lorry.driverName.trim();
+      const callingName = trimmedDriverName.split(' ')[0];
+      const driverPhone = lorry.driverPhone?.trim() || null;
+      const expectedStatus = lorry.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+
       let emp = await prisma.employee.findFirst({
         where: {
           OR: [
@@ -154,8 +171,8 @@ async function syncFleetAndRepsToEmployees() {
           data: {
             employeeNumber,
             fullName: trimmedDriverName,
-            callingName: trimmedDriverName.split(' ')[0],
-            phone: lorry.driverPhone?.trim() || '077 000 0000',
+            callingName,
+            phone: driverPhone || '077 000 0000',
             designation: 'Lorry Driver',
             department: 'SALES_FLEET',
             employmentType: 'FULL_TIME',
@@ -165,7 +182,7 @@ async function syncFleetAndRepsToEmployees() {
             allowances: 4000,
             commissionRate: 0.5,
             lorryId: lorry.id,
-            status: lorry.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+            status: expectedStatus,
             joinDate: lorry.createdAt || new Date()
           }
         });
@@ -173,10 +190,10 @@ async function syncFleetAndRepsToEmployees() {
         const updateData: any = {};
         if (emp.lorryId !== lorry.id) updateData.lorryId = lorry.id;
         if (emp.fullName !== trimmedDriverName) updateData.fullName = trimmedDriverName;
-        if (lorry.driverPhone && (!emp.phone || emp.phone === '077 000 0000')) {
-          updateData.phone = lorry.driverPhone.trim();
+        if (callingName && emp.callingName !== callingName) updateData.callingName = callingName;
+        if (driverPhone && emp.phone !== driverPhone) {
+          updateData.phone = driverPhone;
         }
-        const expectedStatus = lorry.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
         if (emp.status !== expectedStatus) updateData.status = expectedStatus;
 
         if (Object.keys(updateData).length > 0) {
@@ -394,12 +411,22 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
 
     try {
       await prisma.user.delete({ where: { id } });
+      await prisma.employee.updateMany({
+        where: { userId: id },
+        data: { status: 'INACTIVE', userId: null }
+      });
     } catch {
       await prisma.user.update({
         where: { id },
         data: { status: 'INACTIVE', lorryId: null }
       });
+      await prisma.employee.updateMany({
+        where: { userId: id },
+        data: { status: 'INACTIVE' }
+      });
     }
+
+    await syncFleetAndRepsToEmployees();
 
     return res.json({ success: true });
   } catch (err: any) {
@@ -6878,10 +6905,10 @@ async function seedIfEmpty() {
         data: [
           {
             employeeNumber: 'EMP-001',
-            fullName: 'Sunimal Perera',
-            callingName: 'Sunimal',
+            fullName: firstRepUser?.fullName || 'Sunimal Perera',
+            callingName: firstRepUser?.username || 'Sunimal',
             nicNumber: '198824501234',
-            phone: '+94 77 123 4567',
+            phone: firstRepUser?.phone || '+94 77 123 4567',
             address: '45, Kandy Road, Kadugannawa',
             designation: 'Route Sales Representative',
             department: 'SALES_FLEET',
@@ -6975,4 +7002,5 @@ async function seedIfEmpty() {
 app.listen(Number(PORT), HOST, async () => {
   console.log(`[Express Backend] Distributor Server active on http://${HOST}:${PORT}`);
   await seedIfEmpty();
+  await syncFleetAndRepsToEmployees();
 });
