@@ -34,11 +34,13 @@ const DEFAULT_ZOOM = 12;
 interface MapViewProps {
   onNavigateToBillEntry?: (customerId?: string, lorryId?: string) => void;
   onNavigateToLorry?: (lorryId?: string) => void;
+  isVisible?: boolean;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
   onNavigateToBillEntry,
-  onNavigateToLorry
+  onNavigateToLorry,
+  isVisible = true
 }) => {
   const { formatMoney } = useCurrency();
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -119,10 +121,11 @@ export const MapView: React.FC<MapViewProps> = ({
       attributionControl: false
     });
 
-    // Add Tile Layer (OpenStreetMap with high-contrast cartography)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap contributors'
+    // Add Tile Layer (CartoDB Voyager - crisp, fast, global CDN cached cartography)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20,
+      subdomains: 'abcd',
+      attribution: '© OpenStreetMap, © CARTO'
     }).addTo(map);
 
     // Zoom control at bottom right for ergonomic mobile & desktop access
@@ -157,13 +160,50 @@ export const MapView: React.FC<MapViewProps> = ({
       }
     });
 
+    // Staggered size invalidation to fix Leaflet gray tiles on initial mount
+    const t1 = setTimeout(() => map.invalidateSize(), 50);
+    const t2 = setTimeout(() => map.invalidateSize(), 250);
+    const t3 = setTimeout(() => map.invalidateSize(), 600);
+
+    // ResizeObserver ensures tile canvas expands immediately when tab or flexbox dimensions change
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    if (mapContainerRef.current) {
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
+    const handleWindowResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleWindowResize);
+
     mapInstanceRef.current = map;
 
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      window.removeEventListener('resize', handleWindowResize);
+      resizeObserver.disconnect();
       map.remove();
       mapInstanceRef.current = null;
     };
   }, [pinningCustomer, loadFleetData]);
+
+  // Trigger size invalidation whenever tab becomes visible
+  useEffect(() => {
+    if (isVisible && mapInstanceRef.current) {
+      const t1 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 50);
+      const t2 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 200);
+      const t3 = setTimeout(() => mapInstanceRef.current?.invalidateSize(), 500);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
+    }
+  }, [isVisible]);
 
   // Handle Pinning Cursor on Map Container
   useEffect(() => {
@@ -457,7 +497,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const unpinnedCustomers = data?.customers.filter(c => c.latitude == null || c.longitude == null) || [];
 
   return (
-    <div className="relative h-screen w-full flex flex-col overflow-hidden bg-slate-900 select-none">
+    <div className="relative h-full flex-1 min-h-0 w-full flex flex-col overflow-hidden bg-slate-900 select-none">
       {/* 1. TOP FLOATING CONTROL BAR */}
       <header className="absolute top-3 left-3 right-3 z-[1000] flex flex-wrap items-center justify-between gap-2.5 pointer-events-none">
         {/* Left: Brand Badge & Route Filter */}
@@ -587,8 +627,20 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* 3. LEAFLET MAP CONTAINER */}
-      <div ref={mapContainerRef} className="h-full w-full z-0" />
+      {/* 3. LEAFLET MAP CANVAS */}
+      <style>{`
+        .leaflet-container {
+          width: 100% !important;
+          height: 100% !important;
+          min-height: 100% !important;
+          background: #e2e8f0 !important;
+        }
+      `}</style>
+      <div
+        ref={mapContainerRef}
+        className="h-full w-full flex-1 min-h-0 z-0"
+        style={{ width: '100%', height: '100%', minHeight: '100%' }}
+      />
 
       {/* 4. BOTTOM FLOATING FLEET STATUS BAR */}
       {data && (
