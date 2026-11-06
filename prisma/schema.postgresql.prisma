@@ -82,16 +82,41 @@ model Lorry {
   routeId       String?
   route         Route?   @relation(fields: [routeId], references: [id])
   status        String   @default("ACTIVE") // ACTIVE, MAINTENANCE
+  
+  // Real-time Driver GPS Tracking
+  currentLatitude    Float?
+  currentLongitude   Float?
+  heading            Float?
+  speed              Float?
+  lastLocationUpdate DateTime?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  loadings    LorryLoading[]
-  lorryStocks LorryStock[]
-  orders      Order[]
-  expenses    Expense[]
+  loadings     LorryLoading[]
+  lorryStocks  LorryStock[]
+  orders       Order[]
+  expenses     Expense[]
+  locationLogs LorryLocationHistory[]
 
   @@index([vehicleNumber])
   @@index([routeId])
+}
+
+// Historical breadcrumb GPS track log for lorries/drivers
+model LorryLocationHistory {
+  id         String   @id @default(uuid())
+  lorryId    String
+  lorry      Lorry    @relation(fields: [lorryId], references: [id], onDelete: Cascade)
+  userId     String?
+  latitude   Float
+  longitude  Float
+  speed      Float?
+  heading    Float?
+  battery    Float?
+  recordedAt DateTime @default(now())
+
+  @@index([lorryId, recordedAt])
 }
 
 // Real-time floating inventory held on each lorry
@@ -174,6 +199,11 @@ model Customer {
   discountPercentage Float    @default(0.0) // Flat discount %
   creditLimit        Float    @default(50000.0)
   outstandingBalance Float    @default(0.0) // Current credit balance
+
+  // Geolocation & Mapping
+  latitude           Float?
+  longitude          Float?
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

@@ -2193,6 +2193,226 @@ app.put('/api/lorries/:id', async (req: Request, res: Response) => {
 });
 
 // ========================================================
+// 2.1 REAL-TIME DRIVER GPS LOCATION TRACKING & FLEET MAP
+// ========================================================
+
+// Real-time GPS location update from driver/rep handheld mobile device
+app.post('/api/lorries/:id/location', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { latitude, longitude, speed, heading, battery, userId } = req.body;
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'Valid numerical latitude and longitude are required.' });
+    }
+
+    const now = new Date();
+
+    // 1. Update Lorry's real-time live position
+    const updatedLorry = await prisma.lorry.update({
+      where: { id },
+      data: {
+        currentLatitude: lat,
+        currentLongitude: lng,
+        speed: speed !== undefined && speed !== null && !isNaN(parseFloat(speed)) ? parseFloat(speed) : null,
+        heading: heading !== undefined && heading !== null && !isNaN(parseFloat(heading)) ? parseFloat(heading) : null,
+        lastLocationUpdate: now
+      },
+      include: { route: true }
+    });
+
+    // 2. Append breadcrumb to historical location log
+    await prisma.lorryLocationHistory.create({
+      data: {
+        lorryId: id,
+        userId: userId || null,
+        latitude: lat,
+        longitude: lng,
+        speed: speed !== undefined && speed !== null && !isNaN(parseFloat(speed)) ? parseFloat(speed) : null,
+        heading: heading !== undefined && heading !== null && !isNaN(parseFloat(heading)) ? parseFloat(heading) : null,
+        battery: battery !== undefined && battery !== null && !isNaN(parseFloat(battery)) ? parseFloat(battery) : null,
+        recordedAt: now
+      }
+    });
+
+    return res.json({
+      success: true,
+      lorryId: id,
+      lastLocationUpdate: now,
+      vehicleNumber: updatedLorry.vehicleNumber,
+      driverName: updatedLorry.driverName
+    });
+  } catch (error: any) {
+    console.error('[API Location] Error recording driver location:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Retrieve driver historical breadcrumb trail (polyline) for a specific date
+app.get('/api/lorries/:id/trail', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (date && typeof date === 'string') {
+      startDate = new Date(`${date}T00:00:00.000Z`);
+      endDate = new Date(`${date}T23:59:59.999Z`);
+    } else {
+      // Default to last 24 hours
+      endDate = new Date();
+      startDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    }
+
+    const trail = await prisma.lorryLocationHistory.findMany({
+      where: {
+        lorryId: id,
+        recordedAt: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      orderBy: { recordedAt: 'asc' },
+      take: 1000 // safe guard
+    });
+
+    return res.json(trail);
+  } catch (error: any) {
+    console.error('[API Location] Error fetching driver trail:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Comprehensive Fleet & Route Map overview endpoint
+app.get('/api/map/fleet', async (req: Request, res: Response) => {
+  try {
+    const { routeId } = req.query;
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // 1. Fetch lorries
+    const lorryWhere: any = { status: 'ACTIVE' };
+    if (routeId && typeof routeId === 'string' && routeId !== 'ALL') {
+      lorryWhere.routeId = routeId;
+    }
+
+    const lorries = await prisma.lorry.findMany({
+      where: lorryWhere,
+      include: {
+        route: true,
+        loadings: {
+          where: { status: { in: ['LOADED', 'IN_TRANSIT'] } },
+          orderBy: { date: 'desc' },
+          take: 1,
+          include: {
+            items: {
+              include: { product: true }
+            }
+          }
+        },
+        orders: {
+          where: {
+            createdAt: { gte: startOfToday },
+            status: { not: 'CANCELLED' }
+          },
+          select: {
+            id: true,
+            netTotal: true
+          }
+        }
+      }
+    });
+
+    // 2. Fetch customers
+    const customerWhere: any = {};
+    if (routeId && typeof routeId === 'string' && routeId !== 'ALL') {
+      customerWhere.routeId = routeId;
+    }
+
+    const customers = await prisma.customer.findMany({
+      where: customerWhere,
+      include: {
+        route: true,
+        orders: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true }
+        },
+        _count: {
+          select: { orders: true }
+        }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    // 3. Fetch routes
+    const routes = await prisma.route.findMany({
+      orderBy: { code: 'asc' }
+    });
+
+    // Process Lorries with online calculation and today metrics
+    const mappedLorries = lorries.map(l => {
+      let isOnline = false;
+      let minutesSinceLastPing: number | null = null;
+
+      if (l.lastLocationUpdate) {
+        const diffMs = now.getTime() - new Date(l.lastLocationUpdate).getTime();
+        minutesSinceLastPing = Math.round(diffMs / (1000 * 60));
+        // Consider driver online if pinged within the last 15 minutes
+        isOnline = minutesSinceLastPing <= 15;
+      }
+
+      const todaySales = l.orders.reduce((sum, o) => sum + (o.netTotal || 0), 0);
+      const todayBillsCount = l.orders.length;
+      const currentLoading = l.loadings.length > 0 ? l.loadings[0] : null;
+
+      const { orders, ...lorryData } = l;
+      return {
+        ...lorryData,
+        isOnline,
+        minutesSinceLastPing,
+        todaySales,
+        todayBillsCount,
+        currentLoading
+      };
+    });
+
+    const mappedCustomers = customers.map(c => ({
+      ...c,
+      lastOrderDate: c.orders.length > 0 ? c.orders[0].createdAt : null,
+      totalOrdersCount: c._count.orders
+    }));
+
+    const totalActiveLorries = mappedLorries.length;
+    const onlineLorriesCount = mappedLorries.filter(l => l.isOnline).length;
+    const totalPinnedCustomers = mappedCustomers.filter(c => c.latitude !== null && c.longitude !== null).length;
+    const unpinnedCustomersCount = mappedCustomers.length - totalPinnedCustomers;
+    const todayTotalSales = mappedLorries.reduce((sum, l) => sum + (l.todaySales || 0), 0);
+
+    return res.json({
+      lorries: mappedLorries,
+      customers: mappedCustomers,
+      routes,
+      stats: {
+        totalActiveLorries,
+        onlineLorriesCount,
+        totalPinnedCustomers,
+        unpinnedCustomersCount,
+        todayTotalSales
+      }
+    });
+  } catch (error: any) {
+    console.error('[API Map] Error loading fleet data:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ========================================================
 // 3. MORNING LORRY LOADING (WAREHOUSE -> LORRY TRANSFER)
 // ========================================================
 // Every morning, items are loaded from warehouse into the lorry.
@@ -2390,7 +2610,9 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
     chequeNumber,
     bankName,
     chequeDate,
-    settlePreviousBills // optional array: [{ orderId: string, amount: number, paymentMethod?: string }]
+    settlePreviousBills, // optional array: [{ orderId: string, amount: number, paymentMethod?: string }]
+    latitude,
+    longitude
   } = req.body;
 
   if (!customerId || ((!Array.isArray(items) || items.length === 0) && (!Array.isArray(returnItems) || returnItems.length === 0))) {
@@ -2618,6 +2840,8 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           notes: notes?.trim() || `Driver: ${lorry.driverName} (${lorry.vehicleNumber})`,
           dispatchedAt: new Date(),
           deliveredAt: new Date(),
+          latitude: latitude !== undefined && latitude !== null && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : (customer.latitude || null),
+          longitude: longitude !== undefined && longitude !== null && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : (customer.longitude || null),
           items: {
             create: orderItemsToCreate
           },
@@ -2966,7 +3190,7 @@ app.get('/api/customers', async (req: Request, res: Response) => {
 // Create customer
 app.post('/api/customers', async (req: Request, res: Response) => {
   try {
-    const { name, companyName, phone, deliveryAddress, city, routeId, pricingTier, discountPercentage, creditLimit } = req.body;
+    const { name, companyName, phone, deliveryAddress, city, routeId, pricingTier, discountPercentage, creditLimit, latitude, longitude } = req.body;
 
     if (!name || !phone || !deliveryAddress) {
       return res.status(400).json({ error: 'Name, Phone, and Delivery Address are required.' });
@@ -2986,7 +3210,9 @@ app.post('/api/customers', async (req: Request, res: Response) => {
         routeId: routeId || null,
         pricingTier: pricingTier || 'STANDARD',
         discountPercentage: parseFloat(discountPercentage || 0),
-        creditLimit: parseFloat(creditLimit || 50000)
+        creditLimit: parseFloat(creditLimit || 50000),
+        latitude: latitude !== undefined && latitude !== null && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null,
+        longitude: longitude !== undefined && longitude !== null && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null
       },
       include: { route: true }
     });
@@ -3001,7 +3227,7 @@ app.post('/api/customers', async (req: Request, res: Response) => {
 app.put('/api/customers/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, companyName, phone, deliveryAddress, city, routeId, pricingTier, discountPercentage, creditLimit, outstandingBalance } = req.body;
+    const { name, companyName, phone, deliveryAddress, city, routeId, pricingTier, discountPercentage, creditLimit, outstandingBalance, latitude, longitude } = req.body;
 
     const updated = await prisma.customer.update({
       where: { id },
@@ -3015,7 +3241,9 @@ app.put('/api/customers/:id', async (req: Request, res: Response) => {
         pricingTier,
         discountPercentage: discountPercentage !== undefined ? parseFloat(discountPercentage) : undefined,
         creditLimit: creditLimit !== undefined ? parseFloat(creditLimit) : undefined,
-        outstandingBalance: outstandingBalance !== undefined ? parseFloat(outstandingBalance) : undefined
+        outstandingBalance: outstandingBalance !== undefined ? parseFloat(outstandingBalance) : undefined,
+        latitude: latitude !== undefined ? (latitude !== null && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null) : undefined,
+        longitude: longitude !== undefined ? (longitude !== null && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null) : undefined
       },
       include: { route: true }
     });

@@ -27,7 +27,9 @@ import {
   SalaryAdvance,
   Payroll,
   HrPayrollSummary,
-  VehicleReturnsReport
+  VehicleReturnsReport,
+  MapFleetData,
+  LorryLocationHistory
 } from '../types';
 
 // Dynamic API URL: uses relative '/api' on Railway / production web,
@@ -97,7 +99,32 @@ export const LorryService = {
     returns: { productId: string; returnedQty: number; returnedFreeQty?: number }[];
     cashHandover: number;
     notes?: string;
-  }) => api.post<LorryLoading>(`/lorries/${id}/settle`, payload).then(r => r.data)
+  }) => api.post<LorryLoading>(`/lorries/${id}/settle`, payload).then(r => r.data),
+  updateLocation: (id: string, payload: {
+    latitude: number;
+    longitude: number;
+    speed?: number | null;
+    heading?: number | null;
+    battery?: number | null;
+    userId?: string;
+  }) => api.post(`/lorries/${id}/location`, payload).then(r => r.data),
+  getTrail: (id: string, date?: string) =>
+    api.get<LorryLocationHistory[]>(`/lorries/${id}/trail`, { params: { date } }).then(r => r.data)
+};
+
+export const MapService = {
+  getFleetData: (routeId?: string) =>
+    api.get<MapFleetData>('/map/fleet', { params: { routeId } }).then(r => r.data),
+  updateDriverLocation: (lorryId: string, payload: {
+    latitude: number;
+    longitude: number;
+    speed?: number | null;
+    heading?: number | null;
+    battery?: number | null;
+    userId?: string;
+  }) => api.post(`/lorries/${lorryId}/location`, payload).then(r => r.data),
+  getDriverTrail: (lorryId: string, date?: string) =>
+    api.get<LorryLocationHistory[]>(`/lorries/${lorryId}/trail`, { params: { date } }).then(r => r.data)
 };
 
 export const CustomerService = {

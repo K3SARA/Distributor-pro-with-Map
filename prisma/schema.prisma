@@ -78,6 +78,14 @@ model Lorry {
   routeId       String?
   route         Route?   @relation(fields: [routeId], references: [id])
   status        String   @default("ACTIVE") // ACTIVE, MAINTENANCE
+  
+  // Real-time Driver GPS Tracking
+  currentLatitude    Float?
+  currentLongitude   Float?
+  heading            Float?
+  speed              Float?
+  lastLocationUpdate DateTime?
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -87,6 +95,23 @@ model Lorry {
   expenses         Expense[]
   customerPayments CustomerPayment[]
   users            User[]
+  locationLogs     LorryLocationHistory[]
+}
+
+// Historical breadcrumb GPS track log for lorries/drivers
+model LorryLocationHistory {
+  id         String   @id @default(uuid())
+  lorryId    String
+  lorry      Lorry    @relation(fields: [lorryId], references: [id], onDelete: Cascade)
+  userId     String?
+  latitude   Float
+  longitude  Float
+  speed      Float?
+  heading    Float?
+  battery    Float?
+  recordedAt DateTime @default(now())
+
+  @@index([lorryId, recordedAt])
 }
 
 // Real-time floating inventory held on each lorry
@@ -161,6 +186,11 @@ model Customer {
   creditLimit        Float    @default(50000.0)
   outstandingBalance Float    @default(0.0) // Current credit balance
   maxCreditInvoices  Int      @default(1) // Max allowed unpaid bills before knock-off settlement required
+
+  // Geolocation & Mapping
+  latitude           Float?
+  longitude          Float?
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -200,6 +230,11 @@ model Order {
   chequeDate   DateTime?
   dispatchedAt DateTime?
   deliveredAt  DateTime? @default(now())
+  
+  // Geolocation capture at time of bill creation
+  latitude     Float?
+  longitude    Float?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

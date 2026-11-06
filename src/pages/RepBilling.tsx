@@ -23,10 +23,12 @@ import {
   Receipt,
   ChevronDown,
   ChevronUp,
-  RefreshCw
+  RefreshCw,
+  MapPin,
+  Navigation
 } from 'lucide-react';
 import { Customer, Product, Lorry, Order, User, RepTargetProgress } from '../types';
-import { CustomerService, LorryService, ProductService, OrderService, AuthService } from '../services/api';
+import { CustomerService, LorryService, ProductService, OrderService, AuthService, MapService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
 import { RepBillsSummaryModal } from '../components/RepBillsSummaryModal';
@@ -125,6 +127,43 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   });
   const [customBillsStart, setCustomBillsStart] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [customBillsEnd, setCustomBillsEnd] = useState<string>(() => new Date().toISOString().slice(0, 10));
+
+  // Live GPS Beacon State (Broadcast driver location to office fleet map)
+  const [isGpsActive, setIsGpsActive] = useState<boolean>(true);
+  const [currentGpsCoords, setCurrentGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [lastGpsSyncTime, setLastGpsSyncTime] = useState<Date | null>(null);
+
+  // Background GPS Ping Effect
+  useEffect(() => {
+    if (!selectedLorryId || !isGpsActive) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    const pingLocation = () => {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const payload = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            speed: pos.coords.speed != null ? pos.coords.speed : null,
+            heading: pos.coords.heading != null ? pos.coords.heading : null,
+            userId: user?.id
+          };
+          setCurrentGpsCoords({ lat: payload.latitude, lng: payload.longitude });
+          MapService.updateDriverLocation(selectedLorryId, payload)
+            .then(() => setLastGpsSyncTime(new Date()))
+            .catch(err => console.warn('[Driver GPS Beacon] Update failed:', err));
+        },
+        err => {
+          console.warn('[Driver GPS Beacon] Geolocation error:', err);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+      );
+    };
+
+    pingLocation();
+    const interval = setInterval(pingLocation, 25000);
+    return () => clearInterval(interval);
+  }, [selectedLorryId, isGpsActive, user?.id]);
 
   const getBillsRangeForPreset = (
     preset: BillsDatePreset,
@@ -576,7 +615,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         discountAmount: (cartSubtotal * (globalDiscountPercent || 0)) / 100,
         discountPercentage: globalDiscountPercent,
         notes: notes.trim() || undefined,
-        settlePreviousBills: previousBillsPayload
+        settlePreviousBills: previousBillsPayload,
+        latitude: currentGpsCoords?.lat,
+        longitude: currentGpsCoords?.lng
       };
 
       if (paymentMethod === 'CHEQUE') {
@@ -658,6 +699,35 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Driver Live GPS Beacon Switch */}
+          <button
+            type="button"
+            onClick={() => setIsGpsActive(!isGpsActive)}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer shrink-0 border ${
+              isGpsActive
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100'
+                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+            }`}
+            title={
+              isGpsActive
+                ? `GPS Active: Broadcasting location to office fleet map (Last ping: ${
+                    lastGpsSyncTime
+                      ? lastGpsSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : 'connecting...'
+                  })`
+                : 'GPS Paused: Click to enable live fleet tracking'
+            }
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+              }`}
+            />
+            <span className="text-[10px] sm:text-[11px]">
+              {isGpsActive ? 'GPS' : 'GPS Off'}
+            </span>
+          </button>
+
           {/* Rep Target & Goals Button */}
           <button
             type="button"

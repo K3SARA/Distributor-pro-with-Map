@@ -280,8 +280,15 @@ export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = (
                     <span className="font-mono">{c.phone}</span>
                   </p>
                   <p className="flex items-start gap-2">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
-                    <span className="line-clamp-2">{c.deliveryAddress}, {c.city}</span>
+                    <MapPin className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${c.latitude != null ? 'text-blue-600' : 'text-slate-400'}`} />
+                    <span className="line-clamp-2">
+                      {c.deliveryAddress}, {c.city}
+                      {c.latitude != null && (
+                        <span className="ml-1.5 inline-flex items-center text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.2 rounded-md border border-blue-200/50">
+                          GPS Pinned
+                        </span>
+                      )}
+                    </span>
                   </p>
                 </div>
               </div>

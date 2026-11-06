@@ -18,6 +18,11 @@ export interface Lorry {
   routeId?: string | null;
   route?: Route | null;
   status: 'ACTIVE' | 'MAINTENANCE';
+  currentLatitude?: number | null;
+  currentLongitude?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  lastLocationUpdate?: string | null;
   lorryStocks?: LorryStock[];
   loadings?: LorryLoading[];
 }
@@ -162,6 +167,8 @@ export interface Customer {
   creditLimit: number;
   outstandingBalance: number;
   maxCreditInvoices?: number;
+  latitude?: number | null;
+  longitude?: number | null;
   createdAt: string;
   updatedAt: string;
   payments?: CustomerPayment[];
@@ -261,6 +268,8 @@ export interface Order {
   notes?: string | null;
   dispatchedAt?: string | null;
   deliveredAt?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];
@@ -836,4 +845,47 @@ export interface HrPayrollSummary {
   pendingAdvancesTotal: number;
   currentMonthPayrollTotal: number;
   departmentCounts: Record<string, number>;
+}
+
+// --------------------------------------------------------
+// MAP & FLEET GEOLOCATION TRACKING TYPES
+// --------------------------------------------------------
+export interface LorryLocationHistory {
+  id: string;
+  lorryId: string;
+  userId?: string | null;
+  latitude: number;
+  longitude: number;
+  speed?: number | null;
+  heading?: number | null;
+  battery?: number | null;
+  recordedAt: string;
+}
+
+export interface MapFleetLorry extends Lorry {
+  route?: Route | null;
+  isOnline: boolean;
+  minutesSinceLastPing?: number | null;
+  currentLoading?: LorryLoading | null;
+  todaySales?: number;
+  todayBillsCount?: number;
+}
+
+export interface MapFleetCustomer extends Customer {
+  route?: Route | null;
+  lastOrderDate?: string | null;
+  totalOrdersCount?: number;
+}
+
+export interface MapFleetData {
+  lorries: MapFleetLorry[];
+  customers: MapFleetCustomer[];
+  routes: Route[];
+  stats: {
+    totalActiveLorries: number;
+    onlineLorriesCount: number;
+    totalPinnedCustomers: number;
+    unpinnedCustomersCount: number;
+    todayTotalSales: number;
+  };
 }

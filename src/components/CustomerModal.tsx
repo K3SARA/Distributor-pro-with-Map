@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check } from 'lucide-react';
+import { X, Check, MapPin, Crosshair } from 'lucide-react';
 import { Customer, Route } from '../types';
 import { CustomerService, RouteService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
@@ -30,10 +30,13 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
     routeId: defaultRouteId || '',
     pricingTier: 'STANDARD',
     discountPercentage: '0',
-    creditLimit: '50000'
+    creditLimit: '50000',
+    latitude: '',
+    longitude: ''
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,7 +55,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
         routeId: customer.routeId || defaultRouteId || '',
         pricingTier: customer.pricingTier,
         discountPercentage: customer.discountPercentage.toString(),
-        creditLimit: customer.creditLimit.toString()
+        creditLimit: customer.creditLimit.toString(),
+        latitude: customer.latitude != null ? customer.latitude.toString() : '',
+        longitude: customer.longitude != null ? customer.longitude.toString() : ''
       });
     } else {
       setFormData({
@@ -64,11 +69,37 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
         routeId: defaultRouteId || '',
         pricingTier: 'STANDARD',
         discountPercentage: '0',
-        creditLimit: '50000'
+        creditLimit: '50000',
+        latitude: '',
+        longitude: ''
       });
     }
     setError(null);
   }, [customer, isOpen, defaultRouteId]);
+
+  const handleGetCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser or device.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setFormData(prev => ({
+          ...prev,
+          latitude: pos.coords.latitude.toFixed(6),
+          longitude: pos.coords.longitude.toFixed(6)
+        }));
+        setLocating(false);
+      },
+      err => {
+        console.warn('Geolocation error:', err);
+        alert('Could not determine current location. Please verify GPS permissions.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -83,6 +114,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
     setError(null);
 
     try {
+      const latVal = formData.latitude.trim() !== '' ? parseFloat(formData.latitude) : null;
+      const lngVal = formData.longitude.trim() !== '' ? parseFloat(formData.longitude) : null;
+
       let savedCust: Customer;
       if (customer) {
         savedCust = await CustomerService.update(customer.id, {
@@ -94,7 +128,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           routeId: formData.routeId || null,
           pricingTier: formData.pricingTier as any,
           discountPercentage: parseFloat(formData.discountPercentage || '0'),
-          creditLimit: parseFloat(formData.creditLimit || '50000')
+          creditLimit: parseFloat(formData.creditLimit || '50000'),
+          latitude: latVal,
+          longitude: lngVal
         });
       } else {
         savedCust = await CustomerService.create({
@@ -106,7 +142,9 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
           routeId: formData.routeId || null,
           pricingTier: formData.pricingTier as any,
           discountPercentage: parseFloat(formData.discountPercentage || '0'),
-          creditLimit: parseFloat(formData.creditLimit || '50000')
+          creditLimit: parseFloat(formData.creditLimit || '50000'),
+          latitude: latVal,
+          longitude: lngVal
         });
       }
       onSaved(savedCust);
@@ -225,6 +263,47 @@ export const CustomerModal: React.FC<CustomerModalProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* GPS Coordinates & Geolocation */}
+          <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                Store GPS Location
+              </label>
+
+              <button
+                type="button"
+                onClick={handleGetCurrentLocation}
+                disabled={locating}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs hover:bg-blue-50 transition flex items-center gap-1"
+              >
+                <Crosshair className={`w-3 h-3 ${locating ? 'animate-spin text-blue-600' : ''}`} />
+                {locating ? 'Acquiring GPS...' : 'Use My Current GPS'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Latitude (e.g. 7.2558)"
+                  value={formData.latitude}
+                  onChange={e => setFormData({ ...formData, latitude: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
+                />
+              </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder="Longitude (e.g. 80.5284)"
+                  value={formData.longitude}
+                  onChange={e => setFormData({ ...formData, longitude: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
+                />
+              </div>
             </div>
           </div>
 

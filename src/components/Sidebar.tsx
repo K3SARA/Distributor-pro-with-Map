@@ -18,6 +18,7 @@ import {
   CreditCard,
   Briefcase,
   LogOut,
+  MapPin,
   X
 } from 'lucide-react';
 import { useCurrency, CURRENCIES, CurrencyCode } from '../context/CurrencyContext';
@@ -57,7 +58,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       title: 'Overview',
       items: [
-        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'fleet-map', label: 'Live Fleet Map', icon: MapPin, badge: 'Live GPS', badgeTone: 'inward' }
       ]
     },
     {

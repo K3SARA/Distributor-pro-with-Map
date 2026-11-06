@@ -4,10 +4,12 @@ import {
   LayoutDashboard,
   Truck,
   Receipt,
-  RotateCcw
+  RotateCcw,
+  MapPin
 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './pages/Dashboard';
+import { MapView } from './pages/MapView';
 import { Inventory } from './pages/Inventory';
 import { LorryLoading } from './pages/LorryLoading';
 import { BillEntry } from './pages/BillEntry';
@@ -60,9 +62,9 @@ export const AppContent: React.FC = () => {
 
   const bottomNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'fleet-map', label: 'Map', icon: MapPin },
     { id: 'lorry-loading', label: 'Load', icon: Truck },
     { id: 'bill-entry', label: 'Bills', icon: Receipt },
-    { id: 'lorry-settlement', label: 'Settle', icon: RotateCcw },
     { id: 'menu', label: 'Menu', icon: Menu }
   ];
 
@@ -126,6 +128,17 @@ export const AppContent: React.FC = () => {
               onNavigateToInventory={() => setCurrentTab('inventory')}
               onNavigateToExpenses={() => setCurrentTab('expenses')}
               onViewInvoice={(order) => setActiveInvoiceOrder(order)}
+            />
+          </div>
+
+          <div className={currentTab === 'fleet-map' ? 'h-full' : 'hidden'}>
+            <MapView
+              onNavigateToBillEntry={() => {
+                setCurrentTab('bill-entry');
+              }}
+              onNavigateToLorry={() => {
+                setCurrentTab('lorry-loading');
+              }}
             />
           </div>
 
