@@ -6,12 +6,14 @@ const envPath = path.join(__dirname, '../.env');
 
 let schema = fs.readFileSync(schemaPath, 'utf8');
 
-// Check the actual DATABASE_URL or POSTGRES_URL environment variable
-let dbUrl = (process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.PG_URL || '').trim();
+// Check the actual DATABASE_URL, POSTGRES_URL, or DATABASE_PUBLIC_URL environment variable
+let dbUrl = (process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_PUBLIC_URL || process.env.PG_URL || '').trim();
 
 // Normalize postgres:// to postgresql:// required by Prisma
 if (dbUrl.startsWith('postgres://')) {
   dbUrl = dbUrl.replace(/^postgres:\/\//, 'postgresql://');
+  process.env.DATABASE_URL = dbUrl;
+} else if (dbUrl.startsWith('postgresql://')) {
   process.env.DATABASE_URL = dbUrl;
 }
 

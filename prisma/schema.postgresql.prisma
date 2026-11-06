@@ -1,6 +1,6 @@
 datasource db {
   provider = "postgresql"
-  url      = env("POSTGRES_URL")
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -24,6 +24,7 @@ model Product {
   minStockAlert Int      @default(10)
   freeRatioBuy  Int      @default(0) // Buy X (e.g. 10)
   freeRatioGet  Int      @default(0) // Get Y Free (e.g. 1)
+  isRawMaterial Boolean  @default(false) // Raw materials / packaging vs finished goods
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -31,29 +32,26 @@ model Product {
   supplier   Supplier? @relation(fields: [supplierId], references: [id])
 
   orderItems         OrderItem[]
-  orderReturns       OrderReturn[]
   stockMovements     StockMovement[]
   lorryStocks        LorryStock[]
   loadingItems       LorryLoadingItem[]
   purchaseOrderItems PurchaseOrderItem[]
-
-  @@index([sku])
-  @@index([name])
+  orderReturns       OrderReturn[]
+  recipes            Recipe[]            @relation("ProductRecipes")
+  recipeItems        RecipeItem[]        @relation("RecipeComponents")
+  productionRunItems ProductionRunItem[] @relation("RunConsumedItems")
 }
 
 model StockMovement {
   id          String   @id @default(uuid())
   productId   String
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  type        String // INBOUND, LORRY_LOAD, LORRY_RETURN, ADJUSTMENT, RETURN
-  quantity    Int // Movement count
+  type        String // INBOUND (Supplier), LORRY_LOAD (Out to lorry), LORRY_RETURN (Back to warehouse), ADJUSTMENT, RETURN
+  quantity    Int // Movement amount
   isFreeIssue Boolean  @default(false) // Whether this movement is for zero-cost free issue stock
   referenceId String? // Linked Order ID, Loading ID, or Supplier Invoice #
   notes       String?
   createdAt   DateTime @default(now())
-
-  @@index([productId])
-  @@index([createdAt])
 }
 
 // --------------------------------------------------------
@@ -61,8 +59,8 @@ model StockMovement {
 // --------------------------------------------------------
 model Route {
   id          String   @id @default(uuid())
-  code        String   @unique // e.g. "R-01", "R-02", "R-03"
-  name        String // e.g. "Route 1 - Colombo South"
+  code        String   @unique // e.g., "R-01", "R-02", "R-03"
+  name        String // e.g., "Route 1 - Colombo South"
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -70,8 +68,6 @@ model Route {
   lorries   Lorry[]
   customers Customer[]
   orders    Order[]
-
-  @@index([code])
 }
 
 model Lorry {
@@ -93,14 +89,13 @@ model Lorry {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  loadings     LorryLoading[]
-  lorryStocks  LorryStock[]
-  orders       Order[]
-  expenses     Expense[]
-  locationLogs LorryLocationHistory[]
-
-  @@index([vehicleNumber])
-  @@index([routeId])
+  loadings         LorryLoading[]
+  lorryStocks      LorryStock[]
+  orders           Order[]
+  expenses         Expense[]
+  customerPayments CustomerPayment[]
+  users            User[]
+  locationLogs     LorryLocationHistory[]
 }
 
 // Historical breadcrumb GPS track log for lorries/drivers
@@ -131,8 +126,6 @@ model LorryStock {
   updatedAt    DateTime @updatedAt
 
   @@unique([lorryId, productId])
-  @@index([lorryId])
-  @@index([productId])
 }
 
 // Morning loading & Evening settlement ledger
@@ -158,10 +151,6 @@ model LorryLoading {
 
   items    LorryLoadingItem[]
   expenses Expense[]
-
-  @@index([lorryId])
-  @@index([date])
-  @@index([status])
 }
 
 model LorryLoadingItem {
@@ -177,9 +166,6 @@ model LorryLoadingItem {
   returnedQty     Int          @default(0) // Returned back to warehouse at settlement (regular)
   returnedFreeQty Int          @default(0) // Returned back to warehouse at settlement (free issue)
   discrepancyQty  Int          @default(0) // Difference (loaded - sold - free - returned)
-
-  @@index([loadingId])
-  @@index([productId])
 }
 
 // --------------------------------------------------------
@@ -199,6 +185,7 @@ model Customer {
   discountPercentage Float    @default(0.0) // Flat discount %
   creditLimit        Float    @default(50000.0)
   outstandingBalance Float    @default(0.0) // Current credit balance
+  maxCreditInvoices  Int      @default(1) // Max allowed unpaid bills before knock-off settlement required
 
   // Geolocation & Mapping
   latitude           Float?
@@ -207,12 +194,8 @@ model Customer {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  orders Order[]
-
-  @@index([code])
-  @@index([phone])
-  @@index([name])
-  @@index([routeId])
+  orders   Order[]
+  payments CustomerPayment[]
 }
 
 // --------------------------------------------------------
@@ -238,21 +221,26 @@ model Order {
   returnAmount   Float @default(0.0) // Value of returned/damaged goods deducted from bill
   netTotal       Float
   cashReceived   Float @default(0.0)
+  paidAmount     Float @default(0.0) // Total amount paid against this specific bill
+  balanceAmount  Float @default(0.0) // Remaining unpaid balance on this bill
 
   notes        String?
+  chequeNumber String?
+  bankName     String?
+  chequeDate   DateTime?
   dispatchedAt DateTime?
   deliveredAt  DateTime? @default(now())
+  
+  // Geolocation capture at time of bill creation
+  latitude     Float?
+  longitude    Float?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  items   OrderItem[]
-  returns OrderReturn[]
-
-  @@index([customerId])
-  @@index([lorryId])
-  @@index([routeId])
-  @@index([createdAt])
-  @@index([status])
+  items       OrderItem[]
+  returns     OrderReturn[]
+  allocations BillPaymentAllocation[]
 }
 
 model OrderItem {
@@ -265,9 +253,6 @@ model OrderItem {
   freeQuantity Int     @default(0) // Free issues given on promotion
   unitPrice    Float
   lineTotal    Float
-
-  @@index([orderId])
-  @@index([productId])
 }
 
 model OrderReturn {
@@ -306,9 +291,6 @@ model Supplier {
 
   products       Product[]
   purchaseOrders PurchaseOrder[]
-
-  @@index([code])
-  @@index([name])
 }
 
 model PurchaseOrder {
@@ -331,11 +313,6 @@ model PurchaseOrder {
   updatedAt             DateTime  @updatedAt
 
   items PurchaseOrderItem[]
-
-  @@index([orderNumber])
-  @@index([supplierId])
-  @@index([createdAt])
-  @@index([status])
 }
 
 model PurchaseOrderItem {
@@ -348,9 +325,6 @@ model PurchaseOrderItem {
   freeQuantity Int           @default(0) // Free issue units received from supplier (Cost = 0)
   costPrice    Float // Purchase price per unit
   lineTotal    Float // quantity * costPrice (freeQuantity has 0 cost)
-
-  @@index([purchaseOrderId])
-  @@index([productId])
 }
 
 // --------------------------------------------------------
@@ -373,10 +347,250 @@ model Expense {
   loading         LorryLoading? @relation(fields: [loadingId], references: [id], onDelete: SetNull)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+}
 
-  @@index([expenseNumber])
-  @@index([category])
-  @@index([date])
-  @@index([lorryId])
-  @@index([loadingId])
+// --------------------------------------------------------
+// 7. CUSTOMER CREDIT PAYMENTS & SETTLEMENT RECEIPTS
+// --------------------------------------------------------
+model CustomerPayment {
+  id            String    @id @default(uuid())
+  receiptNumber String    @unique // e.g. "RCPT-20261031-0001"
+  customerId    String
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amount        Float
+  paymentMethod String    @default("CASH") // CASH, CHEQUE, BANK_TRANSFER
+  chequeNumber  String?
+  bankName      String?
+  chequeDate    DateTime?
+  chequeStatus  String?   @default("PENDING") // PENDING (In Hand), DEPOSITED, CLEARED, BOUNCED
+  depositDate   DateTime?
+  clearedDate   DateTime?
+  bouncedDate   DateTime?
+  depositBank   String?
+  bounceReason  String?
+  reference     String?   // e.g. Bank slip or transaction ID
+  notes         String?
+  collectedBy   String?   // Driver name, Sales rep, or Cashier
+  lorryId       String?
+  lorry         Lorry?    @relation(fields: [lorryId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  allocations BillPaymentAllocation[]
+}
+
+// --------------------------------------------------------
+// 7.1 BILL-TO-BILL PAYMENT ALLOCATIONS (KNOCK-OFF LEDGER)
+// --------------------------------------------------------
+model BillPaymentAllocation {
+  id         String          @id @default(uuid())
+  paymentId  String
+  payment    CustomerPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  orderId    String
+  order      Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount     Float           // Amount knocked off this specific bill
+  notes      String?
+  createdAt  DateTime        @default(now())
+}
+
+// --------------------------------------------------------
+// 8. MANUFACTURING, BOM RECIPES & PRODUCTION RUNS
+// --------------------------------------------------------
+model Recipe {
+  id                    String   @id @default(uuid())
+  code                  String   @unique // e.g. "BOM-001"
+  name                  String   // e.g. "Sunlight Detergent 1kg Packaging"
+  productId             String   // Target Finished Good
+  product               Product  @relation("ProductRecipes", fields: [productId], references: [id], onDelete: Cascade)
+  outputYield           Int      @default(1) // Units of finished product produced per batch
+  estimatedOverheadCost Float    @default(0.0) // Packaging / labor overhead per batch
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  items          RecipeItem[]
+  productionRuns ProductionRun[]
+}
+
+model RecipeItem {
+  id                 String  @id @default(uuid())
+  recipeId           String
+  recipe             Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  componentProductId String  // Ingredient / Raw Material / Packaging component
+  componentProduct   Product @relation("RecipeComponents", fields: [componentProductId], references: [id])
+  quantity           Float   // Quantity needed per recipe output yield
+  notes              String?
+}
+
+model ProductionRun {
+  id                   String              @id @default(uuid())
+  batchNumber          String              @unique // e.g. "BATCH-20261031-0001"
+  recipeId             String
+  recipe               Recipe              @relation(fields: [recipeId], references: [id])
+  targetQuantity       Int                 // Planned units of finished goods
+  actualQuantity       Int                 @default(0) // Completed output units
+  status               String              @default("COMPLETED") // DRAFT, IN_PROGRESS, COMPLETED, CANCELLED
+  totalRawMaterialCost Float               @default(0.0)
+  overheadCost         Float               @default(0.0)
+  totalProductionCost  Float               @default(0.0)
+  unitCost             Float               @default(0.0)
+  producedBy           String?             // Shift / Operator / Supervisor
+  notes                String?
+  startDate            DateTime            @default(now())
+  completedAt          DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  items ProductionRunItem[]
+}
+
+model ProductionRunItem {
+  id              String        @id @default(uuid())
+  productionRunId String
+  productionRun   ProductionRun @relation(fields: [productionRunId], references: [id], onDelete: Cascade)
+  productId       String        // Component product consumed
+  product         Product       @relation("RunConsumedItems", fields: [productId], references: [id])
+  plannedQuantity Float
+  actualQuantity  Float
+  unitCost        Float
+  lineCost        Float
+}
+
+// --------------------------------------------------------
+// 9. AUTH & USERS (ADMIN & MOBILE ROUTE REPS)
+// --------------------------------------------------------
+model User {
+  id               String   @id @default(uuid())
+  username         String   @unique
+  password         String
+  fullName         String
+  role             String   @default("REP") // "ADMIN" | "REP"
+  phone            String?
+  lorryId          String?
+  lorry            Lorry?   @relation(fields: [lorryId], references: [id])
+  status           String   @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  monthlyTarget    Float    @default(0.0) // Monthly revenue target amount
+  dailyTarget      Float    @default(0.0) // Daily revenue target amount
+  targetNewClients Int      @default(0)   // Monthly new shops onboarding target
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// --------------------------------------------------------
+// 10. HR & PAYROLL MANAGEMENT (EMPLOYEES, ATTENDANCE, ADVANCES, PAYROLL)
+// --------------------------------------------------------
+model Employee {
+  id              String          @id @default(uuid())
+  employeeNumber  String          @unique // e.g. "EMP-001"
+  fullName        String
+  callingName     String?         // Familiar name e.g. "Kamal"
+  nicNumber       String?         // National ID / NIC
+  phone           String
+  address         String?
+  designation     String          // "Sales Rep", "Lorry Driver", "Head Baker", "Warehouse Staff", "Office Assistant"
+  department      String          @default("SALES_FLEET") // "SALES_FLEET", "WAREHOUSE", "MANUFACTURING", "ADMIN"
+  employmentType  String          @default("FULL_TIME") // "FULL_TIME", "DAILY_WAGE", "CONTRACT"
+  joinDate        DateTime        @default(now())
+  status          String          @default("ACTIVE") // "ACTIVE", "INACTIVE", "TERMINATED"
+
+  // Base Pay & Rates
+  basicSalary     Float           @default(0.0) // Monthly basic salary
+  dailyRate       Float           @default(0.0) // Daily wage if daily paid
+  otHourlyRate    Float           @default(0.0) // Hourly overtime rate
+  allowances      Float           @default(0.0) // Fixed allowances (Transport, Food, Attendance)
+  commissionRate  Float           @default(0.0) // Sales commission % (e.g. 1.5% of monthly route sales)
+
+  // Bank & Statutory Information
+  bankName        String?
+  branchName      String?
+  accountNumber   String?
+  epfNumber       String?
+
+  // System Cross-Wiring
+  userId          String?         // Mapped to system User ID (for Sales Reps)
+  lorryId         String?         // Mapped to vehicle (for Drivers / Reps)
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  attendances     Attendance[]
+  salaryAdvances  SalaryAdvance[]
+  payrolls        Payroll[]
+}
+
+model Attendance {
+  id           String    @id @default(uuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime  @default(now()) // Midnight ISO date
+  status       String    @default("PRESENT") // "PRESENT", "HALF_DAY", "ABSENT", "LEAVE"
+  checkInTime  String?   // e.g. "08:00"
+  checkOutTime String?   // e.g. "17:30"
+  otHours      Float     @default(0.0)
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model SalaryAdvance {
+  id            String    @id @default(uuid())
+  advanceNumber String    @unique // e.g. "ADV-202611-0001"
+  employeeId    String
+  employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  amount        Float
+  date          DateTime  @default(now())
+  reason        String?
+  paymentMethod String    @default("CASH") // "CASH", "BANK_TRANSFER"
+  status        String    @default("DEDUCTED") // "PENDING", "DEDUCTED", "CANCELLED"
+  payrollId     String?
+  payroll       Payroll?  @relation(fields: [payrollId], references: [id], onDelete: SetNull)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payroll {
+  id               String          @id @default(uuid())
+  payslipNumber    String          @unique // e.g. "PAY-202611-0001"
+  employeeId       String
+  employee         Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  month            Int             // 1-12
+  year             Int             // e.g. 2026
+
+  // Attendance metrics
+  workedDays       Int             @default(0)
+  absentDays       Int             @default(0)
+  leaveDays        Int             @default(0)
+  otHours          Float           @default(0.0)
+
+  // Earnings
+  basicSalary      Float           @default(0.0)
+  otAmount         Float           @default(0.0)
+  allowances       Float           @default(0.0)
+  salesCommission  Float           @default(0.0) // Auto-calculated from Lorry sales
+  performanceBonus Float           @default(0.0)
+  grossEarnings    Float           @default(0.0)
+
+  // Deductions
+  advancesDeducted Float           @default(0.0) // Auto-aggregated from SalaryAdvance
+  epfDeduction     Float           @default(0.0) // EPF 8%
+  employerEpf      Float           @default(0.0) // Employer EPF 12%
+  employerEtf      Float           @default(0.0) // Employer ETF 3%
+  otherDeductions  Float           @default(0.0)
+  totalDeductions  Float           @default(0.0)
+
+  // Net Pay
+  netPayable       Float           @default(0.0)
+
+  paymentStatus    String          @default("PAID") // "DRAFT", "APPROVED", "PAID"
+  paymentMethod    String          @default("CASH") // "CASH", "BANK_TRANSFER", "CHEQUE"
+  paidAt           DateTime?
+  expenseId        String?         // Synced to business Expense entry
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  salaryAdvances   SalaryAdvance[]
 }

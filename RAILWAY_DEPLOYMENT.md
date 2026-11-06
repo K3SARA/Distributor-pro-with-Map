@@ -30,68 +30,56 @@ The Express server automatically:
 
 ## 🚀 Step-by-Step Deployment Guide
 
-### Step 1: Switch Prisma to PostgreSQL
-
-Run this one-line command in your terminal to switch the schema to PostgreSQL:
-```powershell
-npm run use:postgres
-```
-*(If you ever want to switch back to local SQLite, run `npm run use:sqlite`).*
+### Step 1: Your GitHub Repository is Ready
+Your repository is already pushed and up-to-date:
+- **Repo URL:** `https://github.com/K3SARA/Distributor-pro-with-Map.git`
+- `prepare-prisma.js` is automatically configured to detect Railway's PostgreSQL `DATABASE_URL` at runtime.
 
 ---
 
-### Step 2: Push Your Project to GitHub
+### Step 2: Create a Project on Railway
 
-1. Initialize git and commit:
-```powershell
-git init
-git add .
-git commit -m "feat: distributor system ready for Railway"
-```
-
-2. Push to your GitHub repository:
-```powershell
-git remote add origin https://github.com/YOUR_USERNAME/distributor-pro.git
-git branch -M main
-git push -u origin main
-```
-
----
-
-### Step 3: Create a Railway Project
-
-1. Log in to [Railway](https://railway.app/).
+1. Go to **[Railway.app](https://railway.app/)** and sign in with your GitHub account.
 2. Click **+ New Project**.
-3. Select **Deploy from GitHub repo** and choose your repository (`distributor-pro`).
+3. Select **Deploy from GitHub repo**.
+4. Choose **`K3SARA/Distributor-pro-with-Map`**.
 
 ---
 
-### Step 4: Add a Managed PostgreSQL Database
+### Step 3: Add PostgreSQL Database Service
 
-1. In your Railway project canvas, click **+ New** (or press `Cmd/Ctrl + K`).
+1. On your Railway project canvas, click **+ New** (or press `Cmd/Ctrl + K`).
 2. Select **Database** ➔ **Add PostgreSQL**.
-3. Railway will provision a cloud PostgreSQL instance in seconds.
+3. Railway will provision a managed PostgreSQL database in a few seconds.
 
 ---
 
-### Step 5: Link the Database URL to your Web Service
+### Step 4: Link PostgreSQL to Your Web App Service
 
-1. Click on your **Web Service** in Railway.
-2. Go to the **Variables** tab.
+1. Click on your **Web Service** card (`Distributor-pro-with-Map`).
+2. Navigate to the **Variables** tab.
 3. Click **+ Add Variable Reference**.
-4. Select `DATABASE_URL` from your PostgreSQL service.
-   *(Railway will automatically map the connection string: `postgresql://postgres:...`)*.
-5. Add the following environment variable:
-   - **`PORT`**: `8080` (or leave default, Railway provides this automatically).
+4. Select `DATABASE_URL` from the PostgreSQL service dropdown.
+   *(Railway will link the internal variable reference, e.g. `${{Postgres.DATABASE_URL}}`)*.
+5. Railway will automatically trigger a redeploy.
 
 ---
 
-### Step 6: Generate a Public Domain
+### Step 5: Generate a Public Domain URL
 
 1. In your Web Service settings on Railway, go to the **Settings** tab.
-2. Scroll to the **Networking** section.
-3. Click **Generate Domain** (e.g. `distributor-pro-production.up.railway.app`).
-4. Once the deployment finishes, open your URL in any browser!
+2. Scroll down to the **Networking** section.
+3. Click **Generate Domain** (e.g. `distributor-pro-with-map.up.railway.app`).
+4. Wait for the deploy status to show **Active (Healthy)**.
+5. Open your public URL in any browser!
+
+---
+
+## 🔑 Default Login Credentials
+Once deployed, the database initializes with:
+- **Username:** `admin`
+- **Password:** `admin123`
+- **Role:** Administrator (Full desktop & mobile access)
 
 ---
 
