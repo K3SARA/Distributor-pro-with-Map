@@ -399,7 +399,7 @@ export const HrService = {
 
   // Attendance
   getAttendance: (params?: { date?: string; startDate?: string; endDate?: string; employeeId?: string; department?: string }) =>
-    api.get<Attendance[]>('/hr/attendance', { params }).then(r => r.data),
+    api.get<{ date: string; attendances: any[]; summary: any } | Attendance[]>('/hr/attendance', { params }).then(r => r.data),
   saveAttendance: (data: { employeeId: string; date: string; status: string; checkInTime?: string; checkOutTime?: string; otHours?: number; notes?: string }) =>
     api.post<Attendance>('/hr/attendance', data).then(r => r.data),
   bulkAttendance: (data: { records: Array<{ employeeId: string; status: string; otHours?: number; notes?: string }>; date: string }) =>

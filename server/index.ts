@@ -6160,7 +6160,7 @@ app.get('/api/hr/attendance', async (req: Request, res: Response) => {
         employee: emp,
         attendanceId: record?.id || null,
         date: targetDate.toISOString(),
-        status: record?.status || 'PENDING',
+        status: record?.status || 'PRESENT',
         checkInTime: record?.checkInTime || '',
         checkOutTime: record?.checkOutTime || '',
         otHours: record?.otHours || 0.0,

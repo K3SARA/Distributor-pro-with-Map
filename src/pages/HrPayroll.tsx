@@ -53,7 +53,13 @@ export const HrPayroll: React.FC = () => {
   const [lorries, setLorries] = useState<Lorry[]>([]);
 
   // Attendance State
-  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [attendanceDate, setAttendanceDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
   const [attendanceMap, setAttendanceMap] = useState<Record<string, { status: AttendanceStatus; otHours: number; notes: string }>>({});
   const [attendanceSaving, setAttendanceSaving] = useState(false);
 
@@ -119,15 +125,30 @@ export const HrPayroll: React.FC = () => {
 
   const loadAttendance = async (dateStr: string) => {
     try {
-      const records = await HrService.getAttendance({ date: dateStr });
+      const response: any = await HrService.getAttendance({ date: dateStr });
+      const records: any[] = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.attendances)
+        ? response.attendances
+        : [];
+
       const map: Record<string, { status: AttendanceStatus; otHours: number; notes: string }> = {};
-      records.forEach((r) => {
+      records.forEach((r: any) => {
+        const rawStatus = r.status === 'PENDING' ? 'PRESENT' : r.status;
         map[r.employeeId] = {
-          status: r.status,
-          otHours: r.otHours || 0,
+          status: (rawStatus || 'PRESENT') as AttendanceStatus,
+          otHours: Number(r.otHours) || 0,
           notes: r.notes || ''
         };
       });
+
+      // Ensure all loaded active employees have an initialized slot in attendanceMap
+      employees.forEach((emp) => {
+        if (!map[emp.id]) {
+          map[emp.id] = { status: 'PRESENT', otHours: 0, notes: '' };
+        }
+      });
+
       setAttendanceMap(map);
     } catch (e) {
       console.error('Failed to load attendance', e);
@@ -166,7 +187,7 @@ export const HrPayroll: React.FC = () => {
     } else if (activeTab === 'payroll') {
       loadPayrolls(payrollMonth, payrollYear);
     }
-  }, [activeTab, attendanceDate, payrollMonth, payrollYear]);
+  }, [activeTab, attendanceDate, payrollMonth, payrollYear, employees.length]);
 
   // Filtered employees
   const filteredEmployees = useMemo(() => {
@@ -222,16 +243,21 @@ export const HrPayroll: React.FC = () => {
   const handleSaveAttendance = async () => {
     setAttendanceSaving(true);
     try {
-      const records = Object.entries(attendanceMap).map(([employeeId, data]) => ({
-        employeeId,
-        status: data.status,
-        otHours: data.otHours,
-        notes: data.notes
-      }));
+      const activeEmps = employees.filter((e) => e.status === 'ACTIVE');
+      const records = activeEmps.map((emp) => {
+        const data = attendanceMap[emp.id] || { status: 'PRESENT', otHours: 0, notes: '' };
+        return {
+          employeeId: emp.id,
+          status: data.status,
+          otHours: data.otHours,
+          notes: data.notes
+        };
+      });
+
       await HrService.bulkAttendance({ records, date: attendanceDate });
       await loadAttendance(attendanceDate);
       await loadSummary();
-      alert('Attendance saved successfully!');
+      alert(`Attendance saved successfully for ${records.length} staff members on ${attendanceDate}!`);
     } catch (e: any) {
       alert(e.response?.data?.error || 'Failed to save attendance');
     } finally {
@@ -678,8 +704,24 @@ export const HrPayroll: React.FC = () => {
               />
             </div>
 
-            <div className="text-xs text-slate-500 font-medium">
-              Click any status button to toggle. Overtime (OT) hours are automatically totaled into payroll.
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleMarkAllPresent}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Mark All Present</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAttendance}
+                disabled={attendanceSaving}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0071E3] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold shadow-xs transition disabled:opacity-50 cursor-pointer"
+              >
+                {attendanceSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>Save Attendance</span>
+              </button>
             </div>
           </div>
 
