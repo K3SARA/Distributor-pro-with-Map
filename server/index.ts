@@ -2202,6 +2202,22 @@ app.post('/api/lorries/:id/location', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { latitude, longitude, speed, heading, battery, userId } = req.body;
 
+    // Guard: Verify that the user broadcasting GPS is a registered Sales Rep (role === 'REP')
+    // Office Administrators or desktop users must NEVER broadcast their office location as a lorry position!
+    if (userId) {
+      const pingUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true, fullName: true }
+      });
+      if (pingUser && pingUser.role === 'ADMIN') {
+        console.warn(`[API Location] Ignored GPS ping from Admin account "${pingUser.fullName}". Admin office locations cannot overwrite lorry coordinates.`);
+        return res.status(200).json({
+          ignored: true,
+          message: 'Office Administrator locations cannot broadcast lorry positions.'
+        });
+      }
+    }
+
     const lat = parseFloat(latitude);
     const lng = parseFloat(longitude);
 

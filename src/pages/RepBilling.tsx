@@ -129,41 +129,69 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [customBillsEnd, setCustomBillsEnd] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   // Live GPS Beacon State (Broadcast driver location to office fleet map)
-  const [isGpsActive, setIsGpsActive] = useState<boolean>(true);
+  // STRICT: Only mobile sales reps on route (role === 'REP') are allowed to broadcast vehicle GPS!
+  const isRepRole = user?.role === 'REP';
+  const [isGpsActive, setIsGpsActive] = useState<boolean>(isRepRole);
   const [currentGpsCoords, setCurrentGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [lastGpsSyncTime, setLastGpsSyncTime] = useState<Date | null>(null);
 
-  // Background GPS Ping Effect
+  // Background GPS Ping Effect (STRICTLY for mobile Sales Reps on route)
   useEffect(() => {
-    if (!selectedLorryId || !isGpsActive) return;
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    // 1. Strict Guard: Admins/backoffice staff must NEVER broadcast office location as a lorry!
+    if (!user || user.role !== 'REP') {
+      return;
+    }
+    // 2. Must be actively enabled and have a valid target lorry
+    if (!selectedLorryId || !isGpsActive) {
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return;
+    }
+
+    let isMounted = true;
 
     const pingLocation = () => {
+      if (!isGpsActive || !isMounted) return;
+
       navigator.geolocation.getCurrentPosition(
         pos => {
+          if (!isMounted) return;
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+
+          // Reject invalid coordinates
+          if (Math.abs(lat) < 0.001 && Math.abs(lng) < 0.001) return;
+
           const payload = {
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude,
-            speed: pos.coords.speed != null ? pos.coords.speed : null,
-            heading: pos.coords.heading != null ? pos.coords.heading : null,
-            userId: user?.id
+            latitude: lat,
+            longitude: lng,
+            speed: pos.coords.speed != null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : null,
+            heading: pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0 ? Math.round(pos.coords.heading) : null,
+            userId: user.id
           };
-          setCurrentGpsCoords({ lat: payload.latitude, lng: payload.longitude });
+
+          setCurrentGpsCoords({ lat, lng });
           MapService.updateDriverLocation(selectedLorryId, payload)
-            .then(() => setLastGpsSyncTime(new Date()))
+            .then(() => {
+              if (isMounted) setLastGpsSyncTime(new Date());
+            })
             .catch(err => console.warn('[Driver GPS Beacon] Update failed:', err));
         },
         err => {
-          console.warn('[Driver GPS Beacon] Geolocation error:', err);
+          console.warn('[Driver GPS Beacon] Geolocation error:', err.message);
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 }
       );
     };
 
     pingLocation();
-    const interval = setInterval(pingLocation, 25000);
-    return () => clearInterval(interval);
-  }, [selectedLorryId, isGpsActive, user?.id]);
+    const interval = setInterval(pingLocation, 15000); // sync every 15s for live route tracking
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [selectedLorryId, isGpsActive, user]);
 
   const getBillsRangeForPreset = (
     preset: BillsDatePreset,
@@ -699,34 +727,36 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Driver Live GPS Beacon Switch */}
-          <button
-            type="button"
-            onClick={() => setIsGpsActive(!isGpsActive)}
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer shrink-0 border ${
-              isGpsActive
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80 hover:bg-emerald-100'
-                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-            }`}
-            title={
-              isGpsActive
-                ? `GPS Active: Broadcasting location to office fleet map (Last ping: ${
-                    lastGpsSyncTime
-                      ? lastGpsSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : 'connecting...'
-                  })`
-                : 'GPS Paused: Click to enable live fleet tracking'
-            }
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+          {/* Driver Live GPS Beacon Switch (REP ROLE ONLY) */}
+          {user?.role === 'REP' && (
+            <button
+              type="button"
+              onClick={() => setIsGpsActive(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer shrink-0 border ${
+                isGpsActive
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
               }`}
-            />
-            <span className="text-[10px] sm:text-[11px]">
-              {isGpsActive ? 'GPS' : 'GPS Off'}
-            </span>
-          </button>
+              title={
+                isGpsActive
+                  ? `Broadcasting GPS: Your vehicle location is live on the office fleet map (Last ping: ${
+                      lastGpsSyncTime
+                        ? lastGpsSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                        : 'connecting...'
+                    })`
+                  : 'GPS Paused: Tap to broadcast your lorry location to the office'
+              }
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                }`}
+              />
+              <span className="text-[11px] font-bold">
+                {isGpsActive ? 'GPS: Broadcast ON' : 'GPS: PAUSED'}
+              </span>
+            </button>
+          )}
 
           {/* Rep Target & Goals Button */}
           <button
