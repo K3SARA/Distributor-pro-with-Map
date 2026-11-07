@@ -126,7 +126,8 @@ export const MapView: React.FC<MapViewProps> = ({
     const customTileUrl = (import.meta.env.VITE_MAP_TILE_URL || '').trim();
     const cartoApiKey = (import.meta.env.VITE_MAP_API_KEY || import.meta.env.VITE_CARTO_API_KEY || 'cb1_4f4i_2_70f5f79149137e9bb04c459c').trim();
 
-    let tileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${cartoApiKey}`;
+    // CARTO Basemaps API strictly requires '?key=YOUR_API_KEY'
+    let tileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${cartoApiKey}`;
     let tileOptions: L.TileLayerOptions = {
       maxZoom: 20,
       subdomains: 'abcd',
@@ -154,7 +155,14 @@ export const MapView: React.FC<MapViewProps> = ({
       };
     }
 
-    L.tileLayer(tileUrl, tileOptions).addTo(map);
+    const tileLayer = L.tileLayer(tileUrl, tileOptions).addTo(map);
+
+    // Automatic seamless fallback to OpenStreetMap if tile error occurs
+    tileLayer.on('tileerror', () => {
+      if (!customTileUrl && !mapboxToken) {
+        tileLayer.setUrl('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+      }
+    });
 
     // Zoom control at bottom right for ergonomic mobile & desktop access
     L.control.zoom({ position: 'bottomright' }).addTo(map);
