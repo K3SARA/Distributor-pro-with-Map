@@ -121,11 +121,12 @@ export const MapView: React.FC<MapViewProps> = ({
       attributionControl: false
     });
 
-    // Add Tile Layer (Supports Mapbox, Custom Tile Provider, or Free CartoDB/OpenStreetMap default)
-    const mapboxToken = (import.meta.env.VITE_MAPBOX_TOKEN || import.meta.env.VITE_MAP_API_KEY || '').trim();
+    // Add Tile Layer (Supports CARTO Basemap with API key, Mapbox, Custom Tile Provider, or OpenStreetMap fallback)
+    const mapboxToken = (import.meta.env.VITE_MAPBOX_TOKEN || '').trim();
     const customTileUrl = (import.meta.env.VITE_MAP_TILE_URL || '').trim();
+    const cartoApiKey = (import.meta.env.VITE_MAP_API_KEY || import.meta.env.VITE_CARTO_API_KEY || 'cb1_4f4i_2_70f5f79149137e9bb04c459c').trim();
 
-    let tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    let tileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${cartoApiKey}`;
     let tileOptions: L.TileLayerOptions = {
       maxZoom: 20,
       subdomains: 'abcd',
@@ -143,6 +144,13 @@ export const MapView: React.FC<MapViewProps> = ({
         tileSize: 512,
         zoomOffset: -1,
         attribution: '© Mapbox © OpenStreetMap'
+      };
+    } else if (!cartoApiKey) {
+      // Direct OpenStreetMap tiles without watermark or key requirement
+      tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      tileOptions = {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
       };
     }
 
