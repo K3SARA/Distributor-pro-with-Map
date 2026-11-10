@@ -20,6 +20,7 @@ import { Customer, Order, Route, CustomerPayment } from '../types';
 import { CustomerModal } from '../components/CustomerModal';
 import { CustomerPaymentModal } from '../components/CustomerPaymentModal';
 import { CustomerReceiptModal } from '../components/CustomerReceiptModal';
+import { CreditRiskBadge, CustomerAgingCard } from '../components/CreditRiskBadge';
 import { useCurrency } from '../context/CurrencyContext';
 
 export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = ({ onViewInvoice: _onViewInvoice }) => {
@@ -243,10 +244,13 @@ export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = (
               }`}
             >
               <div>
-                <div className="flex items-start justify-between mb-3">
-                  <span className="text-xs font-mono font-bold text-slate-500 px-2.5 py-0.5 bg-slate-100 rounded-lg">
-                    {c.code}
-                  </span>
+                <div className="flex items-start justify-between mb-3 gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-bold text-slate-500 px-2.5 py-0.5 bg-slate-100 rounded-lg">
+                      {c.code}
+                    </span>
+                    <CreditRiskBadge creditRisk={c.creditRisk} compact />
+                  </div>
                   <span
                     className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
                       c.pricingTier === 'VIP'
@@ -392,6 +396,13 @@ export const Customers: React.FC<{ onViewInvoice?: (order: Order) => void }> = (
                   </button>
                 </div>
               </div>
+
+              {/* Credit Risk & Aging Breakdown Card */}
+              {historyCustomer.creditRisk && (
+                <div className="mt-4">
+                  <CustomerAgingCard creditRisk={historyCustomer.creditRisk} currency={formatMoney(0).split(' ')[0]} />
+                </div>
+              )}
 
               {/* Tab Selector */}
               <div className="mt-4 flex items-center gap-2 border-b border-slate-100 pb-3">

@@ -153,6 +153,28 @@ export interface PurchaseOrder {
   items: PurchaseOrderItem[];
 }
 
+export type CreditReliability = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'HIGH_RISK';
+
+export interface CustomerAging {
+  current: number;          // 0 - 15 days
+  days16to30: number;       // 16 - 30 days
+  days31to60: number;       // 31 - 60 days (Overdue)
+  over60: number;           // > 60 days (Critical overdue)
+  totalOverdue: number;     // sum of overdue balances (>30 days)
+  oldestUnpaidDays: number; // Max days open of any unpaid bill
+  unpaidBillsCount: number; // Count of pending bills
+}
+
+export interface CustomerCreditRisk {
+  averageDaysToPay: number | null; // e.g. 14.2 days average turnaround
+  reliability: CreditReliability;  // 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'HIGH_RISK'
+  reliabilityLabel: string;        // 'Prompt Payer', 'Good Standing', 'Moderate Risk', 'High Risk'
+  aging: CustomerAging;
+  isCreditBlocked: boolean;        // true if overdue > 30 days OR balance > creditLimit
+  blockReason?: string | null;     // Explanation for hard stop
+  maxCreditDays: number;           // Configured threshold (e.g. 30 days)
+}
+
 export interface Customer {
   id: string;
   code: string;
@@ -170,6 +192,7 @@ export interface Customer {
   maxCreditInvoices?: number;
   latitude?: number | null;
   longitude?: number | null;
+  creditRisk?: CustomerCreditRisk;
   createdAt: string;
   updatedAt: string;
   payments?: CustomerPayment[];
@@ -349,6 +372,8 @@ export interface SystemSettings {
   defaultCurrency: string;
   defaultCreditLimit: number;
   lowStockThreshold: number;
+  adminCreditPasscode?: string;
+  maxCreditDays?: number;
 }
 
 export type ExpenseCategory =

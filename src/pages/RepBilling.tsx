@@ -35,6 +35,7 @@ import {
   AlertTriangle,
   ExternalLink,
   ShieldCheck,
+  ShieldAlert,
   Camera,
   Barcode
 } from 'lucide-react';
@@ -54,6 +55,8 @@ import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
 import { RepBillsSummaryModal } from '../components/RepBillsSummaryModal';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
+import { CreditRiskBadge, CustomerAgingCard } from '../components/CreditRiskBadge';
+import { AdminPasscodeModal } from '../components/AdminPasscodeModal';
 
 interface CartItem {
   productId: string;
@@ -123,6 +126,11 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [checkoutSuccessOrder, setCheckoutSuccessOrder] = useState<Order | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Credit Stop Override State
+  const [showAdminPasscodeModal, setShowAdminPasscodeModal] = useState<boolean>(false);
+  const [adminOverridePasscode, setAdminOverridePasscode] = useState<string | null>(null);
+  const [authorizedByName, setAuthorizedByName] = useState<string | null>(null);
 
   // Add Customer Modal State
   const [showAddCustomerModal, setShowAddCustomerModal] = useState<boolean>(false);
@@ -754,6 +762,11 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       }
     }
 
+    if (paymentMethod === 'CREDIT' && selectedCustomer?.creditRisk?.isCreditBlocked && !adminOverridePasscode) {
+      setShowAdminPasscodeModal(true);
+      return;
+    }
+
     try {
       setSubmitting(true);
       setErrorMessage(null);
@@ -785,7 +798,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         notes: notes.trim() || undefined,
         settlePreviousBills: previousBillsPayload,
         latitude: currentGpsCoords?.lat,
-        longitude: currentGpsCoords?.lng
+        longitude: currentGpsCoords?.lng,
+        adminOverridePasscode: adminOverridePasscode || undefined
       };
 
       if (paymentMethod === 'CHEQUE') {
@@ -817,6 +831,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const handleStartNewBill = () => {
     setCart([]);
     setSelectedCustomerId('');
+    setAdminOverridePasscode(null);
+    setAuthorizedByName(null);
+    setShowAdminPasscodeModal(false);
     setBillingMethod('NORMAL');
     setCustomerUnpaidBills([]);
     setSettlePrevAmount('');
@@ -1335,6 +1352,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                               {customer.code}
                             </span>
                           )}
+                          <CreditRiskBadge creditRisk={customer.creditRisk} compact />
                           {isNext && (
                             <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded-full">
                               Next
@@ -1418,7 +1436,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                       }`}
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-xs text-slate-900 truncate">
                             {customer.name}
                           </span>
@@ -1427,6 +1445,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                               {customer.code}
                             </span>
                           )}
+                          <CreditRiskBadge creditRisk={customer.creditRisk} compact />
                         </div>
                         <p className="text-[11px] text-slate-500 truncate">
                           {customer.phone || customer.deliveryAddress || 'No phone'}
@@ -1952,7 +1971,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                   <button
                     key={m}
                     type="button"
-                    onClick={() => setPaymentMethod(m)}
+                    onClick={() => {
+                      setPaymentMethod(m);
+                      if (m === 'CREDIT' && selectedCustomer?.creditRisk?.isCreditBlocked && !adminOverridePasscode) {
+                        setShowAdminPasscodeModal(true);
+                      }
+                    }}
                     className={`py-2 rounded-lg text-xs font-bold transition ${
                       paymentMethod === m
                         ? 'bg-blue-600 text-white shadow-xs'
@@ -1964,6 +1988,56 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Credit Stop Status & Admin Passcode Authorization */}
+            {paymentMethod === 'CREDIT' && selectedCustomer?.creditRisk?.isCreditBlocked && (
+              adminOverridePasscode ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs animate-fadeIn">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <span className="font-bold text-emerald-900 block leading-tight">
+                        Credit Stop Override Authorized
+                      </span>
+                      <span className="text-[10px] text-emerald-700">
+                        Authorized by {authorizedByName || 'Admin Master PIN'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminOverridePasscode(null);
+                      setAuthorizedByName(null);
+                    }}
+                    className="text-[10px] text-emerald-800 hover:text-emerald-950 font-bold underline bg-white/60 px-2 py-1 rounded-md"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-center justify-between gap-2 text-xs animate-fadeIn shadow-2xs">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <span className="font-bold text-rose-900 block leading-tight">
+                        Hard Credit Stop Active
+                      </span>
+                      <span className="text-[10px] text-rose-700 block truncate">
+                        {selectedCustomer?.creditRisk?.blockReason || 'Customer has bills >30 days overdue. Admin PIN required.'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPasscodeModal(true)}
+                    className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 active:scale-[0.98] text-white font-bold text-xs rounded-lg shrink-0 shadow-2xs transition"
+                  >
+                    Enter PIN
+                  </button>
+                </div>
+              )
+            )}
 
             {/* Cheque Details Card */}
             {paymentMethod === 'CHEQUE' && (
@@ -2917,6 +2991,26 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         onScan={handleBarcodeScanned}
         title="Mobile Barcode Scanner"
         subtitle="Aim camera at product barcode or QR code"
+      />
+
+      {/* HARD CREDIT STOP ADMIN PASSCODE MODAL */}
+      <AdminPasscodeModal
+        isOpen={showAdminPasscodeModal}
+        customer={selectedCustomer}
+        onClose={() => setShowAdminPasscodeModal(false)}
+        onAuthorize={(pin, authName) => {
+          setAdminOverridePasscode(pin);
+          setAuthorizedByName(authName);
+          setShowAdminPasscodeModal(false);
+        }}
+        onSwitchToCash={() => {
+          setPaymentMethod('CASH');
+          setShowAdminPasscodeModal(false);
+        }}
+        onSwitchToCheque={() => {
+          setPaymentMethod('CHEQUE');
+          setShowAdminPasscodeModal(false);
+        }}
       />
     </div>
   );

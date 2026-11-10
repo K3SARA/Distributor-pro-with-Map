@@ -117,6 +117,9 @@ export const LorryService = {
     bankName?: string;
     chequeDate?: string;
     settlePreviousBills?: { orderId: string; amount: number; paymentMethod?: string }[];
+    latitude?: number;
+    longitude?: number;
+    adminOverridePasscode?: string;
   }) => api.post<Order>(`/lorries/${id}/bills`, payload).then(r => r.data),
   settleLorry: (id: string, payload: {
     loadingId: string;
@@ -156,10 +159,14 @@ export const MapService = {
 export const CustomerService = {
   getAll: (search?: string, routeId?: string) =>
     api.get<Customer[]>('/customers', { params: { search, routeId } }).then(r => r.data),
+  getById: (id: string) =>
+    api.get<Customer>(`/customers/${id}`).then(r => r.data),
   create: (data: Partial<Customer>) =>
     api.post<Customer>('/customers', data).then(r => r.data),
   update: (id: string, data: Partial<Customer>) =>
     api.put<Customer>(`/customers/${id}`, data).then(r => r.data),
+  verifyCreditOverride: (id: string, passcode: string) =>
+    api.post<{ authorized: boolean; authorizedBy: string; name: string }>(`/customers/${id}/verify-credit-override`, { passcode }).then(r => r.data),
   getOrderHistory: (id: string) =>
     api.get<Order[]>(`/customers/${id}/orders`).then(r => r.data),
   getUnpaidBills: (id: string) =>
@@ -214,6 +221,7 @@ export const OrderService = {
     chequeDate?: string;
     lorryId?: string;
     settlePreviousBills?: { orderId: string; amount: number; paymentMethod?: string }[];
+    adminOverridePasscode?: string;
   }) => api.post<Order>('/orders', payload).then(r => r.data),
   updateStatus: (id: string, status: string) =>
     api.patch<Order>(`/orders/${id}/status`, { status }).then(r => r.data)

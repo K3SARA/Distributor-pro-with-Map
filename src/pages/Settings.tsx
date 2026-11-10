@@ -40,7 +40,9 @@ export const Settings: React.FC = () => {
     invoiceFooterNote: 'Goods once delivered and acknowledged on paper slip cannot be returned without formal warehouse return authorization.',
     defaultCurrency: 'LKR',
     defaultCreditLimit: 50000,
-    lowStockThreshold: 10
+    lowStockThreshold: 10,
+    adminCreditPasscode: '8888',
+    maxCreditDays: 30
   });
 
   const [loading, setLoading] = useState(true);
@@ -917,6 +919,39 @@ export const Settings: React.FC = () => {
                   onChange={(e) => setSettings({ ...settings, lowStockThreshold: parseInt(e.target.value, 10) || 10 })}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-rose-600 uppercase tracking-wider block mb-1.5">
+                  Hard Credit Stop Override PIN
+                </label>
+                <input
+                  type="text"
+                  value={settings.adminCreditPasscode || '8888'}
+                  onChange={(e) => setSettings({ ...settings, adminCreditPasscode: e.target.value })}
+                  placeholder="8888"
+                  className="w-full bg-slate-50 border border-rose-200 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Authorizes credit invoices for shops with overdue bills &gt; 30 days. Default: 8888.
+                </span>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                  Max Credit Terms (Days)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={settings.maxCreditDays || 30}
+                  onChange={(e) => setSettings({ ...settings, maxCreditDays: parseInt(e.target.value, 10) || 30 })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Unpaid bills older than this will trigger automatic Hard Credit Stop. Default: 30 days.
+                </span>
               </div>
             </div>
           </div>

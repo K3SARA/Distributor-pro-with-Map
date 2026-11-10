@@ -37,7 +37,9 @@ const defaultSettings = {
   invoiceFooterNote: 'Goods received in fresh & satisfactory condition. Thank you for your business!',
   defaultCurrency: 'LKR',
   defaultCreditLimit: 50000,
-  lowStockThreshold: 10
+  lowStockThreshold: 10,
+  adminCreditPasscode: '8888',
+  maxCreditDays: 30
 };
 
 function getSettings() {
@@ -58,6 +60,164 @@ function saveSettings(settings: any) {
   } catch (err) {
     console.error('Error writing settings file:', err);
   }
+}
+
+// Helper: Calculate Customer Credit Risk, Average Days to Pay & Aging
+function computeCustomerCreditRisk(
+  customer: { id: string; creditLimit?: number | null; outstandingBalance?: number | null },
+  customerOrders: any[],
+  settings: any
+) {
+  const maxAllowedDays = typeof settings.maxCreditDays === 'number' && settings.maxCreditDays > 0 ? settings.maxCreditDays : 30;
+  const now = Date.now();
+  const ONE_DAY_MS = 1000 * 60 * 60 * 24;
+
+  let current = 0;
+  let days16to30 = 0;
+  let days31to60 = 0;
+  let over60 = 0;
+  let oldestUnpaidDays = 0;
+  let unpaidBillsCount = 0;
+
+  // Track days to pay for settled bills to calculate DSO turnaround
+  const paymentDaysList: number[] = [];
+
+  for (const order of customerOrders) {
+    if (order.status === 'CANCELLED') continue;
+
+    const orderTime = new Date(order.createdAt).getTime();
+    const daysOpen = Math.max(0, Math.floor((now - orderTime) / ONE_DAY_MS));
+
+    const bal = typeof order.balanceAmount === 'number' && order.balanceAmount > 0
+      ? order.balanceAmount
+      : Math.max(0, (order.netTotal || 0) - (order.paidAmount || 0));
+
+    const isPaid = order.paymentStatus === 'PAID' || bal <= 0;
+
+    if (!isPaid) {
+      unpaidBillsCount++;
+      if (daysOpen > oldestUnpaidDays) {
+        oldestUnpaidDays = daysOpen;
+      }
+
+      if (daysOpen <= 15) {
+        current += bal;
+      } else if (daysOpen <= 30) {
+        days16to30 += bal;
+      } else if (daysOpen <= 60) {
+        days31to60 += bal;
+      } else {
+        over60 += bal;
+      }
+    } else {
+      // Settled order turnaround
+      if (order.allocations && order.allocations.length > 0) {
+        let latestAllocTime = orderTime;
+        for (const alloc of order.allocations) {
+          const aTime = new Date(alloc.createdAt || (alloc.payment && alloc.payment.createdAt) || order.createdAt).getTime();
+          if (aTime > latestAllocTime) latestAllocTime = aTime;
+        }
+        const payDays = Math.max(0, Math.round((latestAllocTime - orderTime) / ONE_DAY_MS));
+        paymentDaysList.push(payDays);
+      } else {
+        // Paid immediately upon invoice issuance
+        paymentDaysList.push(0);
+      }
+    }
+  }
+
+  current = Math.round(current * 100) / 100;
+  days16to30 = Math.round(days16to30 * 100) / 100;
+  days31to60 = Math.round(days31to60 * 100) / 100;
+  over60 = Math.round(over60 * 100) / 100;
+  const totalOverdue = Math.round((days31to60 + over60) * 100) / 100;
+
+  let averageDaysToPay: number | null = null;
+  if (paymentDaysList.length > 0) {
+    const sum = paymentDaysList.reduce((a, b) => a + b, 0);
+    averageDaysToPay = Math.round((sum / paymentDaysList.length) * 10) / 10;
+  }
+
+  const outstanding = typeof customer.outstandingBalance === 'number' ? customer.outstandingBalance : 0;
+  const creditLimit = typeof customer.creditLimit === 'number' ? customer.creditLimit : 0;
+
+  const isOverdueStop = oldestUnpaidDays > maxAllowedDays;
+  const isLimitStop = creditLimit > 0 && outstanding > creditLimit;
+  const isCreditBlocked = isOverdueStop || isLimitStop;
+
+  let blockReason: string | null = null;
+  if (isOverdueStop && isLimitStop) {
+    blockReason = `Bills ${oldestUnpaidDays} days overdue (> ${maxAllowedDays}d limit) & credit limit exceeded`;
+  } else if (isOverdueStop) {
+    blockReason = `Bills overdue for ${oldestUnpaidDays} days (exceeds ${maxAllowedDays}-day credit terms)`;
+  } else if (isLimitStop) {
+    blockReason = `Outstanding balance (Rs. ${outstanding.toLocaleString()}) exceeds credit limit (Rs. ${creditLimit.toLocaleString()})`;
+  }
+
+  let reliability: 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'HIGH_RISK' = 'EXCELLENT';
+  let reliabilityLabel = 'Prompt Payer';
+
+  if (isCreditBlocked || totalOverdue > 0 || (averageDaysToPay !== null && averageDaysToPay > 45)) {
+    reliability = 'HIGH_RISK';
+    reliabilityLabel = oldestUnpaidDays > 0 ? `${oldestUnpaidDays}d Overdue` : 'High Risk';
+  } else if ((averageDaysToPay !== null && averageDaysToPay > 30) || oldestUnpaidDays > 15) {
+    reliability = 'MODERATE';
+    reliabilityLabel = 'Moderate Risk';
+  } else if ((averageDaysToPay !== null && averageDaysToPay > 14) || oldestUnpaidDays > 0) {
+    reliability = 'GOOD';
+    reliabilityLabel = 'Good Standing';
+  } else {
+    reliability = 'EXCELLENT';
+    reliabilityLabel = 'Prompt Payer';
+  }
+
+  return {
+    averageDaysToPay,
+    reliability,
+    reliabilityLabel,
+    aging: {
+      current,
+      days16to30,
+      days31to60,
+      over60,
+      totalOverdue,
+      oldestUnpaidDays,
+      unpaidBillsCount
+    },
+    isCreditBlocked,
+    blockReason,
+    maxCreditDays: maxAllowedDays
+  };
+}
+
+// Passcode verification helper: checks master PIN (default 8888) or any active ADMIN user password
+async function verifyAdminCreditPasscode(passcode: string | undefined): Promise<{ authorized: boolean; authorizedBy?: string; name?: string }> {
+  if (!passcode || typeof passcode !== 'string') {
+    return { authorized: false };
+  }
+  const clean = passcode.trim();
+  if (!clean) return { authorized: false };
+
+  const settings = getSettings();
+  const masterPin = String(settings.adminCreditPasscode || '8888').trim();
+
+  if (clean === masterPin) {
+    return { authorized: true, authorizedBy: 'MASTER_PIN', name: 'Master PIN Override' };
+  }
+
+  const adminUser = await prisma.user.findFirst({
+    where: {
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      password: clean
+    }
+  });
+
+  if (adminUser) {
+    return { authorized: true, authorizedBy: 'ADMIN_USER', name: adminUser.fullName || adminUser.username };
+  }
+
+  return { authorized: false };
 }
 
 // Auto-generate unique Employee sequence numbers (EMP-001, EMP-002...)
@@ -2211,20 +2371,55 @@ app.get('/api/routes/:id/optimized', async (req: Request, res: Response) => {
 
     const customerIds = route.customers.map(c => c.id);
 
-    const todayVisits = await prisma.customerVisit.findMany({
-      where: {
-        customerId: { in: customerIds },
-        date: { gte: todayStart }
-      }
-    });
+    const [todayVisits, todayOrders, allCustomerOrders] = await Promise.all([
+      prisma.customerVisit.findMany({
+        where: {
+          customerId: { in: customerIds },
+          date: { gte: todayStart }
+        }
+      }),
+      prisma.order.findMany({
+        where: {
+          customerId: { in: customerIds },
+          createdAt: { gte: todayStart },
+          status: { not: 'CANCELLED' }
+        }
+      }),
+      prisma.order.findMany({
+        where: {
+          customerId: { in: customerIds },
+          status: { not: 'CANCELLED' }
+        },
+        select: {
+          id: true,
+          customerId: true,
+          status: true,
+          paymentStatus: true,
+          paymentMethod: true,
+          netTotal: true,
+          paidAmount: true,
+          balanceAmount: true,
+          createdAt: true,
+          allocations: { select: { createdAt: true } }
+        }
+      })
+    ]);
 
-    const todayOrders = await prisma.order.findMany({
-      where: {
-        customerId: { in: customerIds },
-        createdAt: { gte: todayStart },
-        status: { not: 'CANCELLED' }
+    const ordersByCust = new Map<string, any[]>();
+    for (const ord of allCustomerOrders) {
+      let list = ordersByCust.get(ord.customerId);
+      if (!list) {
+        list = [];
+        ordersByCust.set(ord.customerId, list);
       }
-    });
+      list.push(ord);
+    }
+
+    const currentSettings = getSettings();
+    const enrichedRouteCustomers = route.customers.map(c => ({
+      ...c,
+      creditRisk: computeCustomerCreditRisk(c, ordersByCust.get(c.id) || [], currentSettings)
+    }));
 
     const visitedMap = new Map<string, any>();
     todayVisits.forEach(v => visitedMap.set(v.customerId, v));
@@ -2235,8 +2430,8 @@ app.get('/api/routes/:id/optimized', async (req: Request, res: Response) => {
     });
 
     // Separate mapped and unmapped customers
-    const validCustomers = route.customers.filter(c => c.latitude != null && c.longitude != null);
-    const unmappedCustomers = route.customers.filter(c => c.latitude == null || c.longitude == null);
+    const validCustomers = enrichedRouteCustomers.filter(c => c.latitude != null && c.longitude != null);
+    const unmappedCustomers = enrichedRouteCustomers.filter(c => c.latitude == null || c.longitude == null);
 
     // Calculate baseline unoptimized distance (original order in database)
     let unoptimizedDistanceKm = 0;
@@ -3395,6 +3590,50 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
       const paymentStatus = paidAmount >= netTotal ? 'PAID' : (paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
       const balanceAmount = Math.max(0, netTotal - paidAmount);
 
+      // Enforce Hard Credit Stop if this is a credit invoice (unpaid balance)
+      let orderNotes = notes?.trim() || `Driver: ${lorry.driverName} (${lorry.vehicleNumber})`;
+      if (balanceAmount > 0 || paymentMethod === 'CREDIT') {
+        const unpaidCustomerOrders = await tx.order.findMany({
+          where: {
+            customerId,
+            paymentStatus: { in: ['UNPAID', 'PARTIAL'] },
+            status: { not: 'CANCELLED' }
+          },
+          select: {
+            createdAt: true,
+            netTotal: true,
+            paidAmount: true,
+            balanceAmount: true
+          }
+        });
+
+        const sysSettings = getSettings();
+        const maxAllowedDays = typeof sysSettings.maxCreditDays === 'number' && sysSettings.maxCreditDays > 0 ? sysSettings.maxCreditDays : 30;
+        const nowMs = Date.now();
+        const ONE_DAY_MS = 1000 * 60 * 60 * 24;
+        let oldestDays = 0;
+        for (const uOrder of unpaidCustomerOrders) {
+          const dOpen = Math.max(0, Math.floor((nowMs - new Date(uOrder.createdAt).getTime()) / ONE_DAY_MS));
+          if (dOpen > oldestDays) oldestDays = dOpen;
+        }
+
+        const isOverdue = oldestDays > maxAllowedDays;
+        const isExceedLimit = (customer.creditLimit || 0) > 0 && ((customer.outstandingBalance || 0) + balanceAmount) > (customer.creditLimit || 0);
+
+        if (isOverdue || isExceedLimit) {
+          const { adminOverridePasscode } = req.body;
+          const authCheck = await verifyAdminCreditPasscode(adminOverridePasscode);
+          if (!authCheck.authorized) {
+            const reason = isOverdue
+              ? `Customer has unpaid bills ${oldestDays} days overdue (allowed credit terms: ${maxAllowedDays} days).`
+              : `Customer outstanding balance will exceed credit limit (Rs. ${(customer.creditLimit || 0).toLocaleString()}).`;
+            throw new Error(`HARD CREDIT STOP: ${reason} Admin Passcode is required to authorize credit sale. Or switch payment to CASH/CHEQUE.`);
+          }
+          const authTag = `[Credit Override Authorized by ${authCheck.name}]`;
+          orderNotes = orderNotes ? `${orderNotes} | ${authTag}` : authTag;
+        }
+      }
+
       // Order number
       const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const countToday = await tx.order.count({
@@ -3428,7 +3667,7 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
           cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
           balanceAmount,
-          notes: notes?.trim() || `Driver: ${lorry.driverName} (${lorry.vehicleNumber})`,
+          notes: orderNotes,
           dispatchedAt: new Date(),
           deliveredAt: new Date(),
           latitude: latitude !== undefined && latitude !== null && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : (customer.latitude || null),
@@ -3812,7 +4051,119 @@ app.get('/api/customers', async (req: Request, res: Response) => {
       },
       orderBy: { name: 'asc' }
     });
-    res.json(customers);
+
+    if (customers.length === 0) {
+      return res.json([]);
+    }
+
+    const customerIds = customers.map(c => c.id);
+    const customerOrders = await prisma.order.findMany({
+      where: { customerId: { in: customerIds }, status: { not: 'CANCELLED' } },
+      select: {
+        id: true,
+        customerId: true,
+        status: true,
+        paymentStatus: true,
+        paymentMethod: true,
+        netTotal: true,
+        paidAmount: true,
+        balanceAmount: true,
+        createdAt: true,
+        allocations: {
+          select: {
+            createdAt: true
+          }
+        }
+      }
+    });
+
+    const ordersByCust = new Map<string, any[]>();
+    for (const ord of customerOrders) {
+      let list = ordersByCust.get(ord.customerId);
+      if (!list) {
+        list = [];
+        ordersByCust.set(ord.customerId, list);
+      }
+      list.push(ord);
+    }
+
+    const currentSettings = getSettings();
+    const enriched = customers.map(c => ({
+      ...c,
+      creditRisk: computeCustomerCreditRisk(c, ordersByCust.get(c.id) || [], currentSettings)
+    }));
+
+    res.json(enriched);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single customer details with full credit risk and aging
+app.get('/api/customers/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const customer = await prisma.customer.findUnique({
+      where: { id },
+      include: {
+        route: true,
+        _count: { select: { orders: true, payments: true } }
+      }
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const customerOrders = await prisma.order.findMany({
+      where: { customerId: id, status: { not: 'CANCELLED' } },
+      select: {
+        id: true,
+        customerId: true,
+        status: true,
+        paymentStatus: true,
+        paymentMethod: true,
+        netTotal: true,
+        paidAmount: true,
+        balanceAmount: true,
+        createdAt: true,
+        allocations: {
+          select: {
+            createdAt: true
+          }
+        }
+      }
+    });
+
+    const currentSettings = getSettings();
+    const creditRisk = computeCustomerCreditRisk(customer, customerOrders, currentSettings);
+
+    res.json({
+      ...customer,
+      creditRisk
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify Admin Passcode / PIN for Credit Stop Override
+app.post('/api/customers/:id/verify-credit-override', async (req: Request, res: Response) => {
+  try {
+    const { passcode } = req.body;
+    const result = await verifyAdminCreditPasscode(passcode);
+    if (!result.authorized) {
+      return res.status(403).json({
+        authorized: false,
+        error: 'Invalid Admin PIN or Password. Credit override rejected.'
+      });
+    }
+
+    res.json({
+      authorized: true,
+      authorizedBy: result.authorizedBy,
+      name: result.name
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -4765,6 +5116,50 @@ app.post('/api/orders', async (req: Request, res: Response) => {
       const calculatedPaymentStatus = paymentStatus || (paidAmount >= netTotal ? 'PAID' : (paidAmount > 0 ? 'PARTIAL' : 'UNPAID'));
       const balanceAmount = Math.max(0, netTotal - paidAmount);
 
+      // Enforce Hard Credit Stop for registered customers if credit/unpaid
+      let orderNotes = notes?.trim() || (walkInName ? `Walk-in: ${walkInName}` : 'Warehouse Direct Counter Sale');
+      if (customer.code !== 'WALK-IN' && (balanceAmount > 0 || paymentMethod === 'CREDIT')) {
+        const unpaidCustomerOrders = await tx.order.findMany({
+          where: {
+            customerId: customer.id,
+            paymentStatus: { in: ['UNPAID', 'PARTIAL'] },
+            status: { not: 'CANCELLED' }
+          },
+          select: {
+            createdAt: true,
+            netTotal: true,
+            paidAmount: true,
+            balanceAmount: true
+          }
+        });
+
+        const sysSettings = getSettings();
+        const maxAllowedDays = typeof sysSettings.maxCreditDays === 'number' && sysSettings.maxCreditDays > 0 ? sysSettings.maxCreditDays : 30;
+        const nowMs = Date.now();
+        const ONE_DAY_MS = 1000 * 60 * 60 * 24;
+        let oldestDays = 0;
+        for (const uOrder of unpaidCustomerOrders) {
+          const dOpen = Math.max(0, Math.floor((nowMs - new Date(uOrder.createdAt).getTime()) / ONE_DAY_MS));
+          if (dOpen > oldestDays) oldestDays = dOpen;
+        }
+
+        const isOverdue = oldestDays > maxAllowedDays;
+        const isExceedLimit = (customer.creditLimit || 0) > 0 && ((customer.outstandingBalance || 0) + balanceAmount) > (customer.creditLimit || 0);
+
+        if (isOverdue || isExceedLimit) {
+          const { adminOverridePasscode } = req.body;
+          const authCheck = await verifyAdminCreditPasscode(adminOverridePasscode);
+          if (!authCheck.authorized) {
+            const reason = isOverdue
+              ? `Customer has unpaid bills ${oldestDays} days overdue (allowed credit terms: ${maxAllowedDays} days).`
+              : `Customer outstanding balance will exceed credit limit (Rs. ${(customer.creditLimit || 0).toLocaleString()}).`;
+            throw new Error(`HARD CREDIT STOP: ${reason} Admin Passcode is required to authorize credit sale. Or switch payment to CASH/CHEQUE.`);
+          }
+          const authTag = `[Credit Override Authorized by ${authCheck.name}]`;
+          orderNotes = orderNotes ? `${orderNotes} | ${authTag}` : authTag;
+        }
+      }
+
       const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const countToday = await tx.order.count({
         where: {
@@ -4796,7 +5191,7 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           cashReceived: isCheque ? 0 : paidAmount,
           paidAmount,
           balanceAmount,
-          notes: notes?.trim() || (walkInName ? `Walk-in: ${walkInName}` : 'Warehouse Direct Counter Sale'),
+          notes: orderNotes,
           items: {
             create: orderItemsToCreate
           },
