@@ -25,10 +25,29 @@ import {
   ChevronUp,
   RefreshCw,
   MapPin,
-  Navigation
+  Navigation,
+  Compass,
+  Sparkles,
+  Clock,
+  Milestone,
+  PhoneCall,
+  CheckCircle2,
+  AlertTriangle,
+  ExternalLink,
+  ShieldCheck
 } from 'lucide-react';
-import { Customer, Product, Lorry, Order, User, RepTargetProgress } from '../types';
-import { CustomerService, LorryService, ProductService, OrderService, AuthService, MapService } from '../services/api';
+import {
+  Customer,
+  Product,
+  Lorry,
+  Order,
+  User,
+  RepTargetProgress,
+  RouteOptimizationResult,
+  OptimizedStop,
+  RouteStatusResult
+} from '../types';
+import { CustomerService, LorryService, ProductService, OrderService, AuthService, MapService, RouteService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
 import { RepBillsSummaryModal } from '../components/RepBillsSummaryModal';
@@ -128,12 +147,55 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [customBillsStart, setCustomBillsStart] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [customBillsEnd, setCustomBillsEnd] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
+  // Smart Route Optimization & Geofenced Visit State
+  const [routeOptimization, setRouteOptimization] = useState<RouteOptimizationResult | null>(null);
+  const [loadingRoute, setLoadingRoute] = useState<boolean>(false);
+  const [routeViewMode, setRouteViewMode] = useState<'SMART_SEQUENCE' | 'ALL_CUSTOMERS'>('SMART_SEQUENCE');
+  const [routeStatus, setRouteStatus] = useState<RouteStatusResult | null>(null);
+  const [showSkippedModal, setShowSkippedModal] = useState<boolean>(false);
+  const [autoCheckinToast, setAutoCheckinToast] = useState<string | null>(null);
+
   // Live GPS Beacon State (Broadcast driver location to office fleet map)
   // STRICT: Only mobile sales reps on route (role === 'REP') are allowed to broadcast vehicle GPS!
   const isRepRole = user?.role === 'REP';
   const [isGpsActive, setIsGpsActive] = useState<boolean>(isRepRole);
   const [currentGpsCoords, setCurrentGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [lastGpsSyncTime, setLastGpsSyncTime] = useState<Date | null>(null);
+
+  // Load AI TSP Optimized Route for current lorry
+  const loadOptimizedRoute = async (targetLorry?: Lorry, coords?: { lat: number; lng: number } | null) => {
+    const l = targetLorry || selectedLorry;
+    if (!l?.routeId) return;
+    try {
+      setLoadingRoute(true);
+      const activeCoords = coords !== undefined ? coords : currentGpsCoords;
+      const opt = await RouteService.getOptimizedRoute(l.routeId, {
+        lorryId: l.id,
+        currentLatitude: activeCoords?.lat,
+        currentLongitude: activeCoords?.lng
+      });
+      setRouteOptimization(opt);
+
+      // Audit status (visited vs skipped stores)
+      const statusRes = await LorryService.getRouteStatus(l.id);
+      setRouteStatus(statusRes);
+    } catch (err) {
+      console.warn('[Smart Route] Failed to load route optimization:', err);
+    } finally {
+      setLoadingRoute(false);
+    }
+  };
+
+  // Launch universal turn-by-turn navigation (Google Maps web/app intent)
+  const handleNavigateToCustomer = (customer: Customer, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (customer.latitude != null && customer.longitude != null) {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${customer.latitude},${customer.longitude}&travelmode=driving`;
+      window.open(url, '_blank');
+    } else {
+      alert(`No GPS coordinates registered for ${customer.name}. You can pin this store from the Live Fleet Map.`);
+    }
+  };
 
   // Background GPS Ping Effect (STRICTLY for mobile Sales Reps on route)
   useEffect(() => {
@@ -173,8 +235,16 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
           setCurrentGpsCoords({ lat, lng });
           MapService.updateDriverLocation(selectedLorryId, payload)
-            .then(() => {
-              if (isMounted) setLastGpsSyncTime(new Date());
+            .then((res: any) => {
+              if (isMounted) {
+                setLastGpsSyncTime(new Date());
+                const visitedShop = res?.autoVisitedShop || res?.data?.autoVisitedShop;
+                if (visitedShop) {
+                  setAutoCheckinToast(`📍 Arrived at "${visitedShop}" — Geofence Verified!`);
+                  setTimeout(() => setAutoCheckinToast(null), 7000);
+                  loadOptimizedRoute(undefined, { lat, lng });
+                }
+              }
             })
             .catch(err => console.warn('[Driver GPS Beacon] Update failed:', err));
         },
@@ -344,9 +414,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       if (initialLorryId && lorryList.some(l => l.id === initialLorryId)) {
         setSelectedLorryId(initialLorryId);
         loadTargets(initialLorryId);
+        const l = lorryList.find(x => x.id === initialLorryId);
+        if (l) loadOptimizedRoute(l);
       } else if (lorryList.length > 0 && !selectedLorryId) {
         setSelectedLorryId(lorryList[0].id);
         loadTargets(lorryList[0].id);
+        loadOptimizedRoute(lorryList[0]);
       } else {
         loadTargets();
       }
@@ -356,6 +429,15 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (selectedLorryId && lorries.length > 0) {
+      const l = lorries.find(x => x.id === selectedLorryId);
+      if (l) {
+        loadOptimizedRoute(l);
+      }
+    }
+  }, [selectedLorryId, lorries]);
 
   const selectedLorry = lorries.find(l => l.id === selectedLorryId);
   const lorryStockMap = useMemo(() => {
@@ -413,6 +495,24 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       (c.deliveryAddress && c.deliveryAddress.toLowerCase().includes(query))
     );
   }, [customers, customerSearch]);
+
+  // Optimized stops with search filtering
+  const routeStopsList = useMemo(() => {
+    if (!routeOptimization || !routeOptimization.stops || routeOptimization.stops.length === 0) {
+      return null;
+    }
+    if (!customerSearch.trim()) {
+      return routeOptimization.stops;
+    }
+    const q = customerSearch.toLowerCase();
+    return routeOptimization.stops.filter(
+      s =>
+        s.customer.name.toLowerCase().includes(q) ||
+        (s.customer.phone && s.customer.phone.toLowerCase().includes(q)) ||
+        (s.customer.code && s.customer.code.toLowerCase().includes(q)) ||
+        (s.customer.deliveryAddress && s.customer.deliveryAddress.toLowerCase().includes(q))
+    );
+  }, [routeOptimization, customerSearch]);
 
   // Distinct Brands
   const availableBrands = useMemo(() => {
@@ -664,7 +764,8 @@ export const RepBilling: React.FC<RepBillingProps> = ({
       setCheckoutSuccessOrder(createdOrder);
       await Promise.all([
         loadTargets(selectedLorryId || undefined),
-        loadFinishedBills(selectedLorryId || undefined)
+        loadFinishedBills(selectedLorryId || undefined),
+        loadOptimizedRoute()
       ]);
     } catch (err: any) {
       setErrorMessage(err.response?.data?.error || err.message || 'Failed to complete bill.');
@@ -689,6 +790,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     setItemSearch('');
     loadTargets(selectedLorryId || undefined);
     loadFinishedBills(selectedLorryId || undefined);
+    loadOptimizedRoute();
   };
 
   const handleCancelCheckout = () => {
@@ -755,6 +857,27 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               <span className="text-[11px] font-bold">
                 {isGpsActive ? 'GPS: Broadcast ON' : 'GPS: PAUSED'}
               </span>
+            </button>
+          )}
+
+          {/* Smart Route Status Button */}
+          {selectedLorry?.routeId && (
+            <button
+              type="button"
+              onClick={() => {
+                loadOptimizedRoute();
+                setShowSkippedModal(true);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
+              title="View Smart Route Sequence & Visit Audit"
+            >
+              <Compass className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-[11px] font-bold">Route</span>
+              {routeOptimization && (
+                <span className="bg-blue-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5">
+                  {routeOptimization.visitedCount}/{routeOptimization.totalCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -889,6 +1012,172 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               </div>
             ) : null}
 
+            {/* Geofence Auto-Checkin Floating Toast */}
+            {autoCheckinToast && (
+              <div className="p-3 bg-emerald-600 text-white rounded-2xl flex items-center justify-between text-xs font-bold shadow-md animate-in slide-in-from-top duration-300">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0" />
+                  <span className="truncate">{autoCheckinToast}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAutoCheckinToast(null)}
+                  className="text-white/80 hover:text-white px-2 py-0.5 text-xs font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* AI TSP Next Recommended Stop Hero Card */}
+            {routeOptimization?.nextStop && !customerSearch && (
+              <div className="bg-gradient-to-br from-blue-600 via-indigo-600 to-slate-900 text-white rounded-2xl p-4 shadow-md border border-blue-400/30 relative overflow-hidden">
+                <div className="absolute -right-8 -bottom-8 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+
+                {/* Header Badge */}
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-md text-[10px] font-bold tracking-wider uppercase border border-white/20">
+                    <Sparkles className="w-3 h-3 text-amber-300" />
+                    <span>Next Stop • #{routeOptimization.nextStop.sequence}</span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold bg-black/30 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10">
+                    <Clock className="w-3 h-3 text-blue-200" />
+                    <span>~{routeOptimization.nextStop.estimatedDriveTimeMinutes}m</span>
+                    <span className="text-white/60">•</span>
+                    <span>{routeOptimization.nextStop.distanceFromPrevKm} km</span>
+                  </div>
+                </div>
+
+                {/* Store Name & Location */}
+                <div className="mb-3">
+                  <h3 className="text-base font-bold text-white tracking-tight leading-snug">
+                    {routeOptimization.nextStop.customer.name}
+                  </h3>
+                  <p className="text-xs text-blue-100/90 font-medium truncate mt-0.5 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-blue-300 shrink-0" />
+                    <span>{routeOptimization.nextStop.customer.deliveryAddress || routeOptimization.nextStop.customer.city || 'On delivery route'}</span>
+                    {routeOptimization.nextStop.customer.phone && (
+                      <>
+                        <span className="text-blue-300">•</span>
+                        <span>{routeOptimization.nextStop.customer.phone}</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {/* Geofence Status Badge */}
+                <div className="mb-3">
+                  {routeOptimization.nextStop.isWithinGeofence ? (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 text-xs font-bold animate-pulse">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                      <span>📍 Within 50m Geofence (Verified Stop)</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/10 text-blue-100 text-[11px] font-medium">
+                      <Compass className="w-3 h-3 text-blue-300" />
+                      <span>
+                        {routeOptimization.nextStop.distanceFromCurrentKm < 900
+                          ? `${Math.round(routeOptimization.nextStop.distanceFromCurrentKm * 1000)}m away from lorry`
+                          : 'En route on assigned delivery track'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Turn-by-Turn & Quick Bill Action Buttons */}
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={e => handleNavigateToCustomer(routeOptimization.nextStop!.customer, e)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-slate-100 active:scale-95 font-bold text-xs shadow-sm transition cursor-pointer"
+                  >
+                    <Navigation className="w-3.5 h-3.5 text-blue-600 fill-blue-600" />
+                    <span>Navigate (Maps)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCustomerId(routeOptimization.nextStop!.customer.id);
+                      setCurrentStep(2);
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white active:scale-95 font-bold text-xs shadow-sm transition cursor-pointer"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>Start Bill</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Smart Route Intelligence Strip & View Switcher */}
+            {routeOptimization && (
+              <div className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-2 shadow-2xs">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Compass className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="font-bold text-slate-800 truncate">
+                      {routeOptimization.routeName || routeOptimization.routeCode}
+                    </span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-bold text-blue-600">
+                      {routeOptimization.visitedCount} / {routeOptimization.totalCount} Visited
+                    </span>
+                  </div>
+
+                  {routeOptimization.savedDistanceKm > 0 && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg shrink-0">
+                      Saved {routeOptimization.savedDistanceKm} km ({routeOptimization.savedPercentage}% Fuel)
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        routeOptimization.totalCount > 0
+                          ? (routeOptimization.visitedCount / routeOptimization.totalCount) * 100
+                          : 0
+                      }%`
+                    }}
+                  />
+                </div>
+
+                {/* Mode Switcher */}
+                <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setRouteViewMode('SMART_SEQUENCE')}
+                    className={`py-1 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      routeViewMode === 'SMART_SEQUENCE'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Optimized Route</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRouteViewMode('ALL_CUSTOMERS')}
+                    className={`py-1 px-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      routeViewMode === 'ALL_CUSTOMERS'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    <span>All Stores ({customers.length})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Search Input & Quick (+) Add Customer Button */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -897,7 +1186,7 @@ export const RepBilling: React.FC<RepBillingProps> = ({
                   type="text"
                   value={customerSearch}
                   onChange={e => setCustomerSearch(e.target.value)}
-                  placeholder="Search customer name or phone..."
+                  placeholder="Search store name, phone or town..."
                   className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
                 />
                 {customerSearch && (
@@ -923,15 +1212,15 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             </div>
 
             {/* Empty State when no customer matches */}
-            {filteredCustomers.length === 0 && (
+            {((routeViewMode === 'SMART_SEQUENCE' && routeStopsList ? routeStopsList.length : filteredCustomers.length) === 0) && (
               <div className="p-6 text-center bg-white rounded-2xl border border-dashed border-slate-200 space-y-2.5 my-2 shadow-2xs">
                 <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-800">No customer found</p>
+                  <p className="text-xs font-bold text-slate-800">No stores found</p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    {customerSearch ? `No customer matches "${customerSearch}"` : 'Your customer list is empty'}
+                    {customerSearch ? `No store matches "${customerSearch}"` : 'Your store list is empty'}
                   </p>
                 </div>
                 <button
@@ -945,61 +1234,189 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               </div>
             )}
 
-            {/* Compact Customer List */}
+            {/* Customer List (Rendered by Smart Route Sequence or Standard List) */}
             <div className="space-y-2 max-h-[58vh] overflow-y-auto pr-0.5">
-              {filteredCustomers.map(customer => {
-                const isSelected = customer.id === selectedCustomerId;
-                const balance = customer.outstandingBalance || 0;
-                const hasDue = balance > 0;
+              {routeViewMode === 'SMART_SEQUENCE' && routeStopsList ? (
+                // SMART TSP ROUTE SEQUENCE LIST
+                routeStopsList.map(stop => {
+                  const customer = stop.customer;
+                  const isSelected = customer.id === selectedCustomerId;
+                  const balance = customer.outstandingBalance || 0;
+                  const hasDue = balance > 0;
+                  const isVisited = stop.status === 'VISITED';
+                  const isNext = stop.status === 'NEXT';
 
-                return (
-                  <div
-                    key={customer.id}
-                    onClick={() => setSelectedCustomerId(customer.id)}
-                    className={`cursor-pointer p-3 rounded-xl border transition flex items-center justify-between gap-2.5 ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
-                        : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-900 truncate">
-                          {customer.name}
-                        </span>
-                        {customer.code && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {customer.code}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500 truncate">
-                        {customer.phone || customer.deliveryAddress || 'No phone'}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      {hasDue ? (
-                        <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg font-mono">
-                          Due: {formatMoney(balance)}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">
-                          Clear
-                        </span>
-                      )}
-
+                  return (
+                    <div
+                      key={customer.id}
+                      onClick={() => setSelectedCustomerId(customer.id)}
+                      className={`cursor-pointer p-3 rounded-xl border transition flex items-center justify-between gap-2.5 ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
+                          : isNext
+                          ? 'border-indigo-400 bg-indigo-50/40 shadow-xs ring-1 ring-indigo-300'
+                          : isVisited
+                          ? 'border-slate-200 bg-slate-50/70 opacity-90'
+                          : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
+                      }`}
+                    >
+                      {/* Sequence Badge */}
                       <div
-                        className={`w-5 h-5 rounded-full flex items-center justify-center text-xs transition ${
-                          isSelected ? 'bg-blue-600 text-white' : 'border border-slate-300'
+                        className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                          isVisited
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : isNext
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600'
                         }`}
                       >
-                        {isSelected && '✓'}
+                        {isVisited ? '✓' : `#${stop.sequence}`}
+                      </div>
+
+                      {/* Store Details */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-xs text-slate-900 truncate">
+                            {customer.name}
+                          </span>
+                          {customer.code && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {customer.code}
+                            </span>
+                          )}
+                          {isNext && (
+                            <span className="text-[9px] font-bold text-blue-700 bg-blue-100 px-1.5 py-0.2 rounded-full">
+                              Next
+                            </span>
+                          )}
+                          {isVisited && (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                              Visited
+                            </span>
+                          )}
+                          {stop.isWithinGeofence && (
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full animate-pulse">
+                              📍 In Geofence
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 truncate mt-0.5">
+                          <span>{customer.deliveryAddress || customer.city || customer.phone || 'Kadugannawa'}</span>
+                          {stop.distanceFromCurrentKm < 900 && (
+                            <>
+                              <span>•</span>
+                              <span className="font-medium text-slate-600 font-mono">
+                                {Math.round(stop.distanceFromCurrentKm * 1000)}m away
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Balance & One-Tap Navigate Action */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hasDue ? (
+                          <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg font-mono">
+                            Due: {formatMoney(balance)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">
+                            Clear
+                          </span>
+                        )}
+
+                        {/* One-Tap Turn-by-Turn Navigation */}
+                        {customer.latitude != null && customer.longitude != null && (
+                          <button
+                            type="button"
+                            onClick={e => handleNavigateToCustomer(customer, e)}
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition cursor-pointer"
+                            title="Navigate here in Google Maps"
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center text-xs transition ${
+                            isSelected ? 'bg-blue-600 text-white' : 'border border-slate-300'
+                          }`}
+                        >
+                          {isSelected && '✓'}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                // STANDARD ALL STORES LIST
+                filteredCustomers.map(customer => {
+                  const isSelected = customer.id === selectedCustomerId;
+                  const balance = customer.outstandingBalance || 0;
+                  const hasDue = balance > 0;
+
+                  return (
+                    <div
+                      key={customer.id}
+                      onClick={() => setSelectedCustomerId(customer.id)}
+                      className={`cursor-pointer p-3 rounded-xl border transition flex items-center justify-between gap-2.5 ${
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
+                          : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-xs text-slate-900 truncate">
+                            {customer.name}
+                          </span>
+                          {customer.code && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {customer.code}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {customer.phone || customer.deliveryAddress || 'No phone'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {hasDue ? (
+                          <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg font-mono">
+                            Due: {formatMoney(balance)}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">
+                            Clear
+                          </span>
+                        )}
+
+                        {/* One-Tap Turn-by-Turn Navigation */}
+                        {customer.latitude != null && customer.longitude != null && (
+                          <button
+                            type="button"
+                            onClick={e => handleNavigateToCustomer(customer, e)}
+                            className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition cursor-pointer"
+                            title="Navigate here in Google Maps"
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center text-xs transition ${
+                            isSelected ? 'bg-blue-600 text-white' : 'border border-slate-300'
+                          }`}
+                        >
+                          {isSelected && '✓'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             {/* Selected Customer Inline Drawer (Only if selected) */}
@@ -2248,6 +2665,144 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               >
                 <Printer className="w-4 h-4" />
                 <span>Print Summary Bill</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SMART ROUTE & SKIPPED SHOPS AUDIT MODAL */}
+      {showSkippedModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Delivery Route & Visit Audit</h2>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {routeStatus?.route?.name || selectedLorry?.vehicleNumber || 'Assigned Delivery Territory'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSkippedModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Metrics Ribbon */}
+            <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 border-b border-slate-200/80 text-center">
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Scheduled</span>
+                <span className="text-lg font-black text-slate-800 font-mono">
+                  {routeStatus?.totalCustomers ?? routeOptimization?.totalCount ?? 0}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/30 shadow-2xs">
+                <span className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Visited</span>
+                <span className="text-lg font-black text-emerald-600 font-mono">
+                  {routeStatus?.visitedCount ?? routeOptimization?.visitedCount ?? 0}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-amber-200 bg-amber-50/30 shadow-2xs">
+                <span className="block text-[10px] font-bold text-amber-700 uppercase tracking-wider">Remaining</span>
+                <span className="text-lg font-black text-amber-600 font-mono">
+                  {routeStatus?.unvisitedCount ?? ((routeOptimization?.totalCount || 0) - (routeOptimization?.visitedCount || 0))}
+                </span>
+              </div>
+            </div>
+
+            {/* Skipped / Incomplete Warning */}
+            {(routeStatus?.unvisitedCount ?? 0) > 0 && (
+              <div className="mx-3 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-amber-900 text-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Driver Accountability Warning</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    {routeStatus?.unvisitedCount} scheduled shops on today's delivery run have not been verified with GPS geofence check-in or bill issuance yet.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Shops List */}
+            <div className="p-3 overflow-y-auto space-y-2 flex-1">
+              <p className="text-xs font-bold text-slate-700 px-1">
+                Remaining Stores ({routeStatus?.unvisitedCustomers.length || 0})
+              </p>
+
+              {(!routeStatus?.unvisitedCustomers || routeStatus.unvisitedCustomers.length === 0) ? (
+                <div className="p-6 text-center bg-emerald-50/50 border border-emerald-200 rounded-xl">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-1.5" />
+                  <p className="text-xs font-bold text-emerald-900">All Scheduled Stores Visited!</p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">Great job! 100% route completion verified.</p>
+                </div>
+              ) : (
+                routeStatus.unvisitedCustomers.map(cust => (
+                  <div
+                    key={cust.id}
+                    className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-2.5 shadow-2xs hover:border-slate-300 transition"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-xs text-slate-900 truncate">{cust.name}</span>
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full">
+                          Pending
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                        {cust.deliveryAddress || cust.city || cust.phone || 'Kadugannawa'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {cust.latitude != null && cust.longitude != null && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowSkippedModal(false);
+                            handleNavigateToCustomer(cust as any);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <Navigation className="w-3 h-3" />
+                          <span>Navigate</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomerId(cust.id);
+                          setShowSkippedModal(false);
+                          setCurrentStep(2);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                      >
+                        <Receipt className="w-3 h-3" />
+                        <span>Bill Shop</span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 border-t border-slate-200 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowSkippedModal(false)}
+                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs"
+              >
+                Close Audit
               </button>
             </div>
           </div>

@@ -21,10 +21,11 @@ import {
   ChevronRight,
   TrendingUp,
   Receipt,
+  Sparkles,
   X
 } from 'lucide-react';
-import { MapService, CustomerService } from '../services/api';
-import { MapFleetData, MapFleetLorry, MapFleetCustomer, Route as RouteType, LorryLocationHistory } from '../types';
+import { MapService, CustomerService, RouteService } from '../services/api';
+import { MapFleetData, MapFleetLorry, MapFleetCustomer, Route as RouteType, LorryLocationHistory, RouteOptimizationResult } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 
 // Default map center (Sri Lanka - Kandy/Kadugannawa region where Sunbakers is located)
@@ -75,6 +76,19 @@ export const MapView: React.FC<MapViewProps> = ({
   const [showLorries, setShowLorries] = useState<boolean>(true);
   const [showCustomers, setShowCustomers] = useState<boolean>(true);
   const [showRouteSequence, setShowRouteSequence] = useState<boolean>(true);
+
+  // AI Route Optimization
+  const [routeOptimization, setRouteOptimization] = useState<RouteOptimizationResult | null>(null);
+
+  useEffect(() => {
+    if (selectedRouteId && selectedRouteId !== 'ALL') {
+      RouteService.getOptimizedRoute(selectedRouteId)
+        .then(res => setRouteOptimization(res))
+        .catch(err => console.warn('[MapView] Route optimization error:', err));
+    } else {
+      setRouteOptimization(null);
+    }
+  }, [selectedRouteId]);
 
   // Pinning Helper Mode (for unpinned stores)
   const [pinningCustomer, setPinningCustomer] = useState<MapFleetCustomer | null>(null);
@@ -346,30 +360,40 @@ export const MapView: React.FC<MapViewProps> = ({
       const isOverCreditLimit = customer.outstandingBalance > customer.creditLimit;
       const isSelected = selectedCustomer?.id === customer.id;
 
+      // Check if customer has a sequence order in the AI optimized route
+      const optStop = routeOptimization?.stops.find(s => s.customer.id === customer.id);
+      const seqNumber = optStop?.sequence;
+      const isVisited = optStop?.status === 'VISITED';
+
       // Color scheme:
+      // Green: Visited today
       // Red: Over limit or high outstanding
       // Orange: Moderate outstanding
-      // Emerald: Settled (balance <= 0)
-      let pinColor = '#10B981'; // Green
-      if (isOverCreditLimit) pinColor = '#EF4444'; // Red
+      // Blue standard
+      let pinColor = '#0071E3'; // Blue standard
+      if (isVisited) pinColor = '#10B981'; // Green (Visited today)
+      else if (isOverCreditLimit) pinColor = '#EF4444'; // Red
       else if (hasOverdueBalance) pinColor = '#F59E0B'; // Amber
-      else pinColor = '#0071E3'; // Blue standard
 
       const customIcon = L.divIcon({
         className: 'custom-customer-icon',
         html: `
           <div style="position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; transform: translate(-50%, -100%);">
             <!-- Pin Head -->
-            <div style="width: ${isSelected ? '32px' : '26px'}; height: ${
-          isSelected ? '32px' : '26px'
+            <div style="width: ${isSelected ? '34px' : '28px'}; height: ${
+          isSelected ? '34px' : '28px'
         }; border-radius: 9999px 9999px 9999px 0; transform: rotate(-45deg); background: ${pinColor}; border: 2.5px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">
-              <div style="transform: rotate(45deg); color: white; display: flex; align-items: center; justify-content: center;">
-                <svg width="${isSelected ? '14' : '12'}" height="${
-          isSelected ? '14' : '12'
-        }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
+              <div style="transform: rotate(45deg); color: white; display: flex; align-items: center; justify-content: center; font-size: ${isSelected ? '12px' : '10px'}; font-weight: 800; font-family: monospace;">
+                ${
+                  seqNumber != null
+                    ? isVisited ? '✓' : seqNumber
+                    : `<svg width="${isSelected ? '14' : '12'}" height="${
+                        isSelected ? '14' : '12'
+                      }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                      </svg>`
+                }
               </div>
             </div>
 
@@ -377,7 +401,7 @@ export const MapView: React.FC<MapViewProps> = ({
             ${
               isSelected
                 ? `<div style="margin-top: 3px; padding: 2px 6px; border-radius: 6px; background: white; color: #0F172A; font-size: 11px; font-weight: 700; white-space: nowrap; box-shadow: 0 3px 8px rgba(0,0,0,0.2); border: 1px solid #E2E8F0;">
-                    ${customer.name}
+                    ${customer.name} ${seqNumber ? `(#${seqNumber})` : ''}
                   </div>`
                 : ''
             }
@@ -394,9 +418,20 @@ export const MapView: React.FC<MapViewProps> = ({
         setSelectedLorry(null);
       });
 
+      // 50-meter Geofence radius circle around store
+      const geofenceCircle = L.circle([customer.latitude, customer.longitude], {
+        radius: 50,
+        color: isVisited ? '#10B981' : isSelected ? '#0071E3' : '#64748B',
+        fillColor: isVisited ? '#10B981' : isSelected ? '#0071E3' : '#94A3B8',
+        fillOpacity: isSelected ? 0.2 : 0.08,
+        weight: isSelected ? 2 : 1.2,
+        dashArray: '3, 4'
+      });
+
+      customerLayerGroupRef.current?.addLayer(geofenceCircle);
       customerLayerGroupRef.current?.addLayer(marker);
     });
-  }, [data, showCustomers, searchQuery, selectedCustomer]);
+  }, [data, showCustomers, searchQuery, selectedCustomer, routeOptimization]);
 
   // 5. Draw Delivery Route Sequence Line
   useEffect(() => {
@@ -405,27 +440,36 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (!showRouteSequence || selectedRouteId === 'ALL') return;
 
-    // Filter customers on selected route that have valid coordinates
-    const routeCustomers = data.customers.filter(
-      c => c.routeId === selectedRouteId && c.latitude != null && c.longitude != null
-    );
+    let latLngs: [number, number][] = [];
 
-    if (routeCustomers.length < 2) return;
+    // Prefer TSP AI Optimized Sequence coordinates if available
+    if (routeOptimization && routeOptimization.stops.length >= 2) {
+      latLngs = routeOptimization.stops
+        .filter(s => s.customer.latitude != null && s.customer.longitude != null)
+        .map(s => [s.customer.latitude!, s.customer.longitude!]);
+    } else {
+      // Fallback: Customers on selected route that have valid coordinates
+      const routeCustomers = data.customers.filter(
+        c => c.routeId === selectedRouteId && c.latitude != null && c.longitude != null
+      );
+      if (routeCustomers.length < 2) return;
+      latLngs = routeCustomers.map(c => [c.latitude!, c.longitude!]);
+    }
 
-    const latLngs: [number, number][] = routeCustomers.map(c => [c.latitude!, c.longitude!]);
+    if (latLngs.length < 2) return;
 
     // Decorative glow polyline
     const routeLine = L.polyline(latLngs, {
       color: '#0071E3',
       weight: 3.5,
-      opacity: 0.8,
+      opacity: 0.85,
       dashArray: '6, 8',
       lineCap: 'round',
       lineJoin: 'round'
     });
 
     routePolylineGroupRef.current.addLayer(routeLine);
-  }, [data, selectedRouteId, showRouteSequence]);
+  }, [data, selectedRouteId, showRouteSequence, routeOptimization]);
 
   // 6. Draw Driver Historical GPS Trail
   useEffect(() => {
@@ -660,6 +704,32 @@ export const MapView: React.FC<MapViewProps> = ({
           >
             <X className="w-4 h-4 text-white" />
           </button>
+        </div>
+      )}
+
+      {/* 2.1 AI TSP OPTIMIZED ROUTE BANNER */}
+      {routeOptimization && !pinningCustomer && (
+        <div className="absolute top-18 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/90 backdrop-blur-md text-white px-4 py-2 rounded-2xl shadow-xl border border-white/20 flex items-center gap-3 max-w-[90vw] overflow-x-auto">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 shrink-0">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>AI Route: {routeOptimization.routeName || routeOptimization.routeCode}</span>
+          </div>
+          <span className="text-white/40">•</span>
+          <span className="text-xs text-slate-200 font-mono shrink-0">
+            {routeOptimization.totalDistanceKm} km ({routeOptimization.totalCount} stops)
+          </span>
+          <span className="text-white/40">•</span>
+          <span className="text-xs text-emerald-400 font-bold shrink-0">
+            {routeOptimization.visitedCount}/{routeOptimization.totalCount} Visited
+          </span>
+          {routeOptimization.savedDistanceKm > 0 && (
+            <>
+              <span className="text-white/40">•</span>
+              <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-400/30 shrink-0">
+                Saved {routeOptimization.savedDistanceKm} km
+              </span>
+            </>
+          )}
         </div>
       )}
 

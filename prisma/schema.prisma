@@ -96,6 +96,7 @@ model Lorry {
   customerPayments CustomerPayment[]
   users            User[]
   locationLogs     LorryLocationHistory[]
+  visits           CustomerVisit[]
 }
 
 // Historical breadcrumb GPS track log for lorries/drivers
@@ -196,6 +197,32 @@ model Customer {
 
   orders   Order[]
   payments CustomerPayment[]
+  visits   CustomerVisit[]
+}
+
+// --------------------------------------------------------
+// 3.1 GEOFENCED STORE VISIT VERIFICATION & AUDIT LOG
+// --------------------------------------------------------
+model CustomerVisit {
+  id              String    @id @default(uuid())
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lorryId         String
+  lorry           Lorry     @relation(fields: [lorryId], references: [id], onDelete: Cascade)
+  userId          String?
+  date            DateTime  @default(now()) // Delivery run date
+  checkInTime     DateTime  @default(now())
+  checkOutTime    DateTime?
+  durationMinutes Int?      @default(0)
+  distanceMeters  Float?    // Distance to store geofence center in meters
+  status          String    @default("VERIFIED") // VERIFIED, MANUAL, SKIPPED
+  orderId         String?   // Linked Order ID if sale was taken
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([lorryId, date])
+  @@index([customerId, date])
 }
 
 // --------------------------------------------------------

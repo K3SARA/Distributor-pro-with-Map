@@ -29,7 +29,11 @@ import {
   HrPayrollSummary,
   VehicleReturnsReport,
   MapFleetData,
-  LorryLocationHistory
+  LorryLocationHistory,
+  CustomerVisit,
+  RouteOptimizationResult,
+  RouteStatusResult,
+  GeofenceCheckinResult
 } from '../types';
 
 // Dynamic API URL: uses relative '/api' on Railway / production web,
@@ -63,7 +67,22 @@ export const RouteService = {
   getAll: () =>
     api.get<Route[]>('/routes').then(r => r.data),
   create: (data: { code: string; name: string; description?: string }) =>
-    api.post<Route>('/routes', data).then(r => r.data)
+    api.post<Route>('/routes', data).then(r => r.data),
+  getOptimizedRoute: (
+    routeId: string,
+    params?: { lorryId?: string; currentLatitude?: number; currentLongitude?: number }
+  ) =>
+    api.get<RouteOptimizationResult>(`/routes/${routeId}/optimized`, { params }).then(r => r.data),
+  geofenceCheckin: (payload: {
+    customerId: string;
+    lorryId?: string;
+    currentLatitude?: number;
+    currentLongitude?: number;
+    userId?: string;
+    notes?: string;
+    forceManual?: boolean;
+  }) =>
+    api.post<GeofenceCheckinResult>('/routes/geofence-checkin', payload).then(r => r.data)
 };
 
 export const LorryService = {
@@ -109,7 +128,9 @@ export const LorryService = {
     userId?: string;
   }) => api.post(`/lorries/${id}/location`, payload).then(r => r.data),
   getTrail: (id: string, date?: string) =>
-    api.get<LorryLocationHistory[]>(`/lorries/${id}/trail`, { params: { date } }).then(r => r.data)
+    api.get<LorryLocationHistory[]>(`/lorries/${id}/trail`, { params: { date } }).then(r => r.data),
+  getRouteStatus: (id: string) =>
+    api.get<RouteStatusResult>(`/lorries/${id}/route-status`).then(r => r.data)
 };
 
 export const MapService = {

@@ -889,3 +889,91 @@ export interface MapFleetData {
     todayTotalSales: number;
   };
 }
+
+// --------------------------------------------------------
+// SMART ROUTE & GPS INTELLIGENCE TYPES
+// --------------------------------------------------------
+export interface CustomerVisit {
+  id: string;
+  customerId: string;
+  customer?: Customer;
+  lorryId: string;
+  lorry?: Lorry;
+  userId?: string | null;
+  date: string;
+  checkInTime: string;
+  checkOutTime?: string | null;
+  durationMinutes?: number | null;
+  distanceMeters?: number | null;
+  status: 'VERIFIED' | 'MANUAL' | 'SKIPPED';
+  orderId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OptimizedStop {
+  sequence: number;
+  customer: Customer;
+  distanceFromPrevKm: number;
+  estimatedDriveTimeMinutes: number;
+  status: 'VISITED' | 'NEXT' | 'PENDING' | 'SKIPPED';
+  isWithinGeofence: boolean;
+  distanceFromCurrentKm: number;
+  todayVisit?: CustomerVisit | null;
+  todayOrderTotal?: number;
+}
+
+export interface RouteOptimizationResult {
+  routeId: string;
+  routeCode: string;
+  routeName: string;
+  totalDistanceKm: number;
+  totalEstimatedTimeMinutes: number;
+  unoptimizedDistanceKm: number;
+  savedDistanceKm: number;
+  savedPercentage: number;
+  stops: OptimizedStop[];
+  nextStop: OptimizedStop | null;
+  visitedCount: number;
+  totalCount: number;
+}
+
+export interface RouteStatusItem {
+  id: string;
+  name: string;
+  companyName?: string | null;
+  phone: string;
+  deliveryAddress: string;
+  city: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  outstandingBalance: number;
+  isVisited: boolean;
+  visitTime?: string | null;
+  durationMinutes?: number | null;
+  visitStatus: 'VERIFIED' | 'MANUAL' | 'SKIPPED' | 'PENDING';
+  orderPlaced: boolean;
+  orderTotal: number;
+}
+
+export interface RouteStatusResult {
+  lorryId: string;
+  vehicleNumber?: string;
+  driverName?: string;
+  route?: Route | null;
+  totalCustomers: number;
+  visitedCount: number;
+  unvisitedCount: number;
+  isComplete: boolean;
+  visitedCustomers: RouteStatusItem[];
+  unvisitedCustomers: RouteStatusItem[];
+}
+
+export interface GeofenceCheckinResult {
+  success: boolean;
+  verified: boolean;
+  distanceMeters: number | null;
+  message?: string;
+  visit?: CustomerVisit;
+}

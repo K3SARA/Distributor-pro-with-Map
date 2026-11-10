@@ -2074,6 +2074,443 @@ app.post('/api/routes', async (req: Request, res: Response) => {
   }
 });
 
+// ========================================================
+// HAVERSINE DISTANCE HELPER (Kilometers)
+// ========================================================
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's mean radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// --------------------------------------------------------
+// 2.1 AI / HEURISTIC ROUTE OPTIMIZER & SEQUENCER (TSP)
+// --------------------------------------------------------
+app.get('/api/routes/:id/optimized', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { lorryId, currentLatitude, currentLongitude } = req.query;
+
+    const route = await prisma.route.findUnique({
+      where: { id },
+      include: {
+        customers: true,
+        lorries: true
+      }
+    });
+
+    if (!route) {
+      return res.status(404).json({ error: 'Route not found.' });
+    }
+
+    // Default depot Kadugannawa Sunbakers
+    const DEPOT_COORDS = { lat: 7.2558, lng: 80.5284, name: 'Sunbakers Kadugannawa Depot' };
+
+    let startLat = DEPOT_COORDS.lat;
+    let startLng = DEPOT_COORDS.lng;
+
+    if (currentLatitude && currentLongitude) {
+      const pLat = parseFloat(currentLatitude as string);
+      const pLng = parseFloat(currentLongitude as string);
+      if (!isNaN(pLat) && !isNaN(pLng)) {
+        startLat = pLat;
+        startLng = pLng;
+      }
+    } else if (lorryId) {
+      const lorry = await prisma.lorry.findUnique({ where: { id: lorryId as string } });
+      if (lorry && lorry.currentLatitude != null && lorry.currentLongitude != null) {
+        startLat = lorry.currentLatitude;
+        startLng = lorry.currentLongitude;
+      }
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const customerIds = route.customers.map(c => c.id);
+
+    const todayVisits = await prisma.customerVisit.findMany({
+      where: {
+        customerId: { in: customerIds },
+        date: { gte: todayStart }
+      }
+    });
+
+    const todayOrders = await prisma.order.findMany({
+      where: {
+        customerId: { in: customerIds },
+        createdAt: { gte: todayStart },
+        status: { not: 'CANCELLED' }
+      }
+    });
+
+    const visitedMap = new Map<string, any>();
+    todayVisits.forEach(v => visitedMap.set(v.customerId, v));
+
+    const orderMap = new Map<string, number>();
+    todayOrders.forEach(o => {
+      orderMap.set(o.customerId, (orderMap.get(o.customerId) || 0) + o.netTotal);
+    });
+
+    // Separate mapped and unmapped customers
+    const validCustomers = route.customers.filter(c => c.latitude != null && c.longitude != null);
+    const unmappedCustomers = route.customers.filter(c => c.latitude == null || c.longitude == null);
+
+    // Calculate baseline unoptimized distance (original order in database)
+    let unoptimizedDistanceKm = 0;
+    if (validCustomers.length > 0) {
+      let prevLat = startLat;
+      let prevLng = startLng;
+      for (const c of validCustomers) {
+        unoptimizedDistanceKm += calculateDistanceKm(prevLat, prevLng, c.latitude!, c.longitude!);
+        prevLat = c.latitude!;
+        prevLng = c.longitude!;
+      }
+    }
+
+    // TSP Optimization: Nearest Neighbor + 2-Opt refinement
+    let orderedCustomers: typeof validCustomers = [];
+    if (validCustomers.length <= 2) {
+      orderedCustomers = [...validCustomers];
+    } else {
+      // 1. Nearest Neighbor heuristic
+      const remaining = [...validCustomers];
+      let curLat = startLat;
+      let curLng = startLng;
+
+      while (remaining.length > 0) {
+        let nearestIdx = 0;
+        let nearestDist = Infinity;
+        for (let i = 0; i < remaining.length; i++) {
+          const d = calculateDistanceKm(curLat, curLng, remaining[i].latitude!, remaining[i].longitude!);
+          if (d < nearestDist) {
+            nearestDist = d;
+            nearestIdx = i;
+          }
+        }
+        const [nextStop] = remaining.splice(nearestIdx, 1);
+        orderedCustomers.push(nextStop);
+        curLat = nextStop.latitude!;
+        curLng = nextStop.longitude!;
+      }
+
+      // 2. 2-Opt local search improvement
+      let improved = true;
+      let iterations = 0;
+      const maxIter = 50;
+
+      while (improved && iterations < maxIter) {
+        improved = false;
+        iterations++;
+        for (let i = 0; i < orderedCustomers.length - 1; i++) {
+          for (let k = i + 1; k < orderedCustomers.length; k++) {
+            const p1 = i === 0 ? { lat: startLat, lng: startLng } : { lat: orderedCustomers[i - 1].latitude!, lng: orderedCustomers[i - 1].longitude! };
+            const p2 = { lat: orderedCustomers[i].latitude!, lng: orderedCustomers[i].longitude! };
+            const p3 = { lat: orderedCustomers[k].latitude!, lng: orderedCustomers[k].longitude! };
+            const p4 = k + 1 < orderedCustomers.length ? { lat: orderedCustomers[k + 1].latitude!, lng: orderedCustomers[k + 1].longitude! } : null;
+
+            const currentD = calculateDistanceKm(p1.lat, p1.lng, p2.lat, p2.lng) + (p4 ? calculateDistanceKm(p3.lat, p3.lng, p4.lat, p4.lng) : 0);
+            const newD = calculateDistanceKm(p1.lat, p1.lng, p3.lat, p3.lng) + (p4 ? calculateDistanceKm(p2.lat, p2.lng, p4.lat, p4.lng) : 0);
+
+            if (newD < currentD - 0.01) {
+              // 2-opt swap
+              const reversed = orderedCustomers.slice(i, k + 1).reverse();
+              orderedCustomers.splice(i, reversed.length, ...reversed);
+              improved = true;
+              break;
+            }
+          }
+          if (improved) break;
+        }
+      }
+    }
+
+    // Append unmapped customers at the end
+    const allStops = [...orderedCustomers, ...unmappedCustomers];
+
+    let runningDistKm = 0;
+    let prevStopLat = startLat;
+    let prevStopLng = startLng;
+    let foundNext = false;
+
+    const stops = allStops.map((cust, idx) => {
+      const hasCoords = cust.latitude != null && cust.longitude != null;
+      const legDist = hasCoords ? calculateDistanceKm(prevStopLat, prevStopLng, cust.latitude!, cust.longitude!) : 0;
+      if (hasCoords) {
+        runningDistKm += legDist;
+        prevStopLat = cust.latitude!;
+        prevStopLng = cust.longitude!;
+      }
+
+      const distFromCurrent = hasCoords ? calculateDistanceKm(startLat, startLng, cust.latitude!, cust.longitude!) : 999;
+      const isWithinGeofence = distFromCurrent <= 0.075; // 75 meters
+
+      const visit = visitedMap.get(cust.id) || null;
+      const orderTotal = orderMap.get(cust.id) || 0;
+      const isVisited = !!visit || orderTotal > 0;
+
+      let status: 'VISITED' | 'NEXT' | 'PENDING' = 'PENDING';
+      if (isVisited) {
+        status = 'VISITED';
+      } else if (!foundNext) {
+        status = 'NEXT';
+        foundNext = true;
+      }
+
+      // Est drive time: 30 km/h average + 10 mins service time
+      const estDriveTimeMins = Math.round((legDist / 30) * 60);
+
+      return {
+        sequence: idx + 1,
+        customer: cust,
+        distanceFromPrevKm: parseFloat(legDist.toFixed(2)),
+        estimatedDriveTimeMinutes: estDriveTimeMins,
+        status,
+        isWithinGeofence,
+        distanceFromCurrentKm: parseFloat(distFromCurrent.toFixed(2)),
+        todayVisit: visit,
+        todayOrderTotal: orderTotal
+      };
+    });
+
+    const optimizedDist = parseFloat(runningDistKm.toFixed(2));
+    const unoptDist = parseFloat(unoptimizedDistanceKm.toFixed(2));
+    const savedDist = Math.max(0, parseFloat((unoptDist - optimizedDist).toFixed(2)));
+    const savedPct = unoptDist > 0 ? Math.round((savedDist / unoptDist) * 100) : 0;
+
+    const nextStop = stops.find(s => s.status === 'NEXT') || null;
+    const visitedCount = stops.filter(s => s.status === 'VISITED').length;
+
+    return res.json({
+      routeId: route.id,
+      routeCode: route.code,
+      routeName: route.name,
+      totalDistanceKm: optimizedDist,
+      totalEstimatedTimeMinutes: Math.round((optimizedDist / 30) * 60) + stops.length * 10,
+      unoptimizedDistanceKm: unoptDist,
+      savedDistanceKm: savedDist,
+      savedPercentage: savedPct,
+      stops,
+      nextStop,
+      visitedCount,
+      totalCount: stops.length
+    });
+  } catch (error: any) {
+    console.error('[API Route Optimize] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// --------------------------------------------------------
+// 2.2 GEOFENCE CHECK-IN (ANTI-FRAUD VISIT VERIFICATION)
+// --------------------------------------------------------
+app.post('/api/routes/geofence-checkin', async (req: Request, res: Response) => {
+  try {
+    const { customerId, lorryId, currentLatitude, currentLongitude, userId, notes, forceManual } = req.body;
+    if (!customerId) {
+      return res.status(400).json({ error: 'Customer ID is required.' });
+    }
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId }
+    });
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found.' });
+    }
+
+    const now = new Date();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    let distanceMeters: number | null = null;
+    let isWithinGeofence = false;
+
+    if (currentLatitude != null && currentLongitude != null && customer.latitude != null && customer.longitude != null) {
+      const distKm = calculateDistanceKm(
+        parseFloat(currentLatitude),
+        parseFloat(currentLongitude),
+        customer.latitude,
+        customer.longitude
+      );
+      distanceMeters = Math.round(distKm * 1000);
+      isWithinGeofence = distanceMeters <= 75;
+    }
+
+    const status = isWithinGeofence ? 'VERIFIED' : forceManual ? 'MANUAL' : 'OUT_OF_RANGE';
+
+    if (!isWithinGeofence && !forceManual) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        distanceMeters,
+        message: `Lorry is ${distanceMeters ?? 'unknown'}m away from ${customer.name}. You must be within 75m to auto-verify, or confirm manual visit.`
+      });
+    }
+
+    let visit = await prisma.customerVisit.findFirst({
+      where: {
+        customerId,
+        lorryId: lorryId || undefined,
+        date: { gte: todayStart }
+      }
+    });
+
+    if (!visit) {
+      visit = await prisma.customerVisit.create({
+        data: {
+          customerId,
+          lorryId: lorryId || '',
+          userId: userId || null,
+          date: now,
+          checkInTime: now,
+          distanceMeters,
+          status: status === 'OUT_OF_RANGE' ? 'MANUAL' : status,
+          notes: notes || (isWithinGeofence ? `Geofence verified (${distanceMeters}m)` : `Manual visit logged (${distanceMeters}m away)`)
+        }
+      });
+    } else {
+      const durationMins = Math.max(1, Math.round((now.getTime() - new Date(visit.checkInTime).getTime()) / 60000));
+      visit = await prisma.customerVisit.update({
+        where: { id: visit.id },
+        data: {
+          checkOutTime: now,
+          durationMinutes: durationMins,
+          distanceMeters: distanceMeters ?? visit.distanceMeters,
+          status: isWithinGeofence ? 'VERIFIED' : visit.status,
+          notes: notes || visit.notes
+        }
+      });
+    }
+
+    return res.json({
+      success: true,
+      verified: isWithinGeofence,
+      distanceMeters,
+      visit
+    });
+  } catch (error: any) {
+    console.error('[API Checkin] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// --------------------------------------------------------
+// 2.3 LORRY ROUTE STATUS & SKIPPED SHOPS AUDIT
+// --------------------------------------------------------
+app.get('/api/lorries/:id/route-status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const lorry = await prisma.lorry.findUnique({
+      where: { id },
+      include: { route: true }
+    });
+
+    if (!lorry) {
+      return res.status(404).json({ error: 'Lorry not found.' });
+    }
+
+    if (!lorry.routeId) {
+      return res.json({
+        lorryId: id,
+        vehicleNumber: lorry.vehicleNumber,
+        driverName: lorry.driverName,
+        route: null,
+        totalCustomers: 0,
+        visitedCount: 0,
+        unvisitedCount: 0,
+        isComplete: true,
+        visitedCustomers: [],
+        unvisitedCustomers: []
+      });
+    }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const customers = await prisma.customer.findMany({
+      where: { routeId: lorry.routeId },
+      orderBy: { name: 'asc' }
+    });
+
+    const visits = await prisma.customerVisit.findMany({
+      where: {
+        lorryId: id,
+        date: { gte: todayStart }
+      }
+    });
+
+    const orders = await prisma.order.findMany({
+      where: {
+        lorryId: id,
+        createdAt: { gte: todayStart },
+        status: { not: 'CANCELLED' }
+      }
+    });
+
+    const visitedCustomerIds = new Set([
+      ...visits.map(v => v.customerId),
+      ...orders.map(o => o.customerId)
+    ]);
+
+    const visitedList: any[] = [];
+    const unvisitedList: any[] = [];
+
+    customers.forEach(cust => {
+      const isVisited = visitedCustomerIds.has(cust.id);
+      const custVisit = visits.find(v => v.customerId === cust.id);
+      const custOrder = orders.find(o => o.customerId === cust.id);
+
+      const item = {
+        id: cust.id,
+        name: cust.name,
+        companyName: cust.companyName,
+        phone: cust.phone,
+        deliveryAddress: cust.deliveryAddress,
+        city: cust.city,
+        latitude: cust.latitude,
+        longitude: cust.longitude,
+        outstandingBalance: cust.outstandingBalance,
+        isVisited,
+        visitTime: custVisit?.checkInTime ? custVisit.checkInTime.toISOString() : null,
+        durationMinutes: custVisit?.durationMinutes ?? null,
+        visitStatus: custVisit?.status || (custOrder ? 'VERIFIED' : 'PENDING'),
+        orderPlaced: !!custOrder,
+        orderTotal: custOrder?.netTotal || 0
+      };
+
+      if (isVisited) {
+        visitedList.push(item);
+      } else {
+        unvisitedList.push(item);
+      }
+    });
+
+    return res.json({
+      lorryId: id,
+      vehicleNumber: lorry.vehicleNumber,
+      driverName: lorry.driverName,
+      route: lorry.route,
+      totalCustomers: customers.length,
+      visitedCount: visitedList.length,
+      unvisitedCount: unvisitedList.length,
+      isComplete: unvisitedList.length === 0,
+      visitedCustomers: visitedList,
+      unvisitedCustomers: unvisitedList
+    });
+  } catch (error: any) {
+    console.error('[API Route Status] Error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // List 3 Lorries with real-time floating stock & active morning loading
 app.get('/api/lorries', async (_req: Request, res: Response) => {
   try {
@@ -2254,12 +2691,76 @@ app.post('/api/lorries/:id/location', async (req: Request, res: Response) => {
       }
     });
 
+    // 3. Automatic Geofence Store Visit Verification (50-75m radius)
+    let autoVisitedShop: string | null = null;
+    try {
+      if (updatedLorry.routeId) {
+        const routeCustomers = await prisma.customer.findMany({
+          where: {
+            routeId: updatedLorry.routeId,
+            latitude: { not: null },
+            longitude: { not: null }
+          },
+          select: { id: true, name: true, latitude: true, longitude: true }
+        });
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+
+        for (const customer of routeCustomers) {
+          if (customer.latitude != null && customer.longitude != null) {
+            const distKm = calculateDistanceKm(lat, lng, customer.latitude, customer.longitude);
+            const distMeters = Math.round(distKm * 1000);
+
+            if (distMeters <= 75) {
+              const existingVisit = await prisma.customerVisit.findFirst({
+                where: {
+                  customerId: customer.id,
+                  lorryId: id,
+                  date: { gte: startOfToday }
+                }
+              });
+
+              if (!existingVisit) {
+                await prisma.customerVisit.create({
+                  data: {
+                    customerId: customer.id,
+                    lorryId: id,
+                    userId: userId || null,
+                    date: now,
+                    checkInTime: now,
+                    distanceMeters: distMeters,
+                    status: 'VERIFIED',
+                    notes: `Auto-verified within ${distMeters}m geofence`
+                  }
+                });
+                autoVisitedShop = customer.name;
+              } else {
+                const durationMins = Math.max(1, Math.round((now.getTime() - new Date(existingVisit.checkInTime).getTime()) / 60000));
+                await prisma.customerVisit.update({
+                  where: { id: existingVisit.id },
+                  data: {
+                    checkOutTime: now,
+                    durationMinutes: durationMins,
+                    distanceMeters: Math.min(existingVisit.distanceMeters ?? distMeters, distMeters)
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (geoErr) {
+      console.warn('[Geofence Location Ping] Verification warning:', geoErr);
+    }
+
     return res.json({
       success: true,
       lorryId: id,
       lastLocationUpdate: now,
       vehicleNumber: updatedLorry.vehicleNumber,
-      driverName: updatedLorry.driverName
+      driverName: updatedLorry.driverName,
+      autoVisitedShop
     });
   } catch (error: any) {
     console.error('[API Location] Error recording driver location:', error);
@@ -3021,6 +3522,46 @@ app.post('/api/lorries/:id/bills', async (req: Request, res: Response) => {
             creditGiven: { increment: creditAmount > 0 ? creditAmount : 0 }
           }
         });
+      }
+
+      // 7. Auto-verify Store Visit on bill completion
+      try {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const existingVisit = await tx.customerVisit.findFirst({
+          where: {
+            customerId,
+            lorryId,
+            date: { gte: startOfToday }
+          }
+        });
+
+        if (existingVisit) {
+          await tx.customerVisit.update({
+            where: { id: existingVisit.id },
+            data: {
+              orderId: newOrder.id,
+              status: 'VERIFIED',
+              notes: existingVisit.notes ? `${existingVisit.notes} | Billed ${newOrder.orderNumber}` : `Billed ${newOrder.orderNumber}`
+            }
+          });
+        } else {
+          await tx.customerVisit.create({
+            data: {
+              customerId,
+              lorryId,
+              date: new Date(),
+              checkInTime: new Date(),
+              checkOutTime: new Date(),
+              durationMinutes: 5,
+              status: 'VERIFIED',
+              orderId: newOrder.id,
+              notes: `Order created: ${newOrder.orderNumber}`
+            }
+          });
+        }
+      } catch (visitErr) {
+        console.warn('[Visit Verify] Note:', visitErr);
       }
 
       return {
@@ -4325,6 +4866,48 @@ app.post('/api/orders', async (req: Request, res: Response) => {
           });
 
           settledReceipts.push(paymentReceipt);
+        }
+      }
+
+      // Auto-verify Store Visit if billed by lorry
+      if (req.body.lorryId) {
+        try {
+          const startOfToday = new Date();
+          startOfToday.setHours(0, 0, 0, 0);
+          const existingVisit = await tx.customerVisit.findFirst({
+            where: {
+              customerId: customer.id,
+              lorryId: req.body.lorryId,
+              date: { gte: startOfToday }
+            }
+          });
+
+          if (existingVisit) {
+            await tx.customerVisit.update({
+              where: { id: existingVisit.id },
+              data: {
+                orderId: createdOrder.id,
+                status: 'VERIFIED',
+                notes: existingVisit.notes ? `${existingVisit.notes} | Billed ${createdOrder.orderNumber}` : `Billed ${createdOrder.orderNumber}`
+              }
+            });
+          } else {
+            await tx.customerVisit.create({
+              data: {
+                customerId: customer.id,
+                lorryId: req.body.lorryId,
+                date: new Date(),
+                checkInTime: new Date(),
+                checkOutTime: new Date(),
+                durationMinutes: 5,
+                status: 'VERIFIED',
+                orderId: createdOrder.id,
+                notes: `Order created: ${createdOrder.orderNumber}`
+              }
+            });
+          }
+        } catch (visitErr) {
+          console.warn('[Visit Verify] Note:', visitErr);
         }
       }
 
