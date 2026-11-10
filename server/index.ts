@@ -1478,6 +1478,7 @@ app.get('/api/products', async (req: Request, res: Response) => {
       where.OR = [
         { name: { contains: search } },
         { sku: { contains: search } },
+        { barcode: { contains: search } } as any,
         { category: { contains: search } }
       ];
     }
@@ -1508,10 +1509,81 @@ app.get('/api/products', async (req: Request, res: Response) => {
   }
 });
 
+// --------------------------------------------------------
+// 1.1 CAMERA BARCODE & QR CODE SCAN LOOKUP
+// --------------------------------------------------------
+app.get('/api/products/scan/:code', async (req: Request, res: Response) => {
+  try {
+    const rawCode = decodeURIComponent(req.params.code).trim();
+    const { lorryId } = req.query;
+
+    if (!rawCode) {
+      return res.status(400).json({ error: 'Barcode or SKU code is required.' });
+    }
+
+    // Exact lookup by barcode, sku, or id
+    let product: any = await (prisma.product as any).findFirst({
+      where: {
+        OR: [
+          { sku: rawCode },
+          { barcode: rawCode },
+          { id: rawCode },
+          { sku: { equals: rawCode.toUpperCase() } }
+        ]
+      },
+      include: {
+        supplier: true,
+        lorryStocks: lorryId ? { where: { lorryId: lorryId as string } } : true
+      }
+    });
+
+    // Fallback: case-insensitive partial match
+    if (!product) {
+      product = await (prisma.product as any).findFirst({
+        where: {
+          OR: [
+            { sku: { contains: rawCode } },
+            { barcode: { contains: rawCode } }
+          ]
+        },
+        include: {
+          supplier: true,
+          lorryStocks: lorryId ? { where: { lorryId: lorryId as string } } : true
+        }
+      });
+    }
+
+    if (!product) {
+      return res.status(404).json({
+        found: false,
+        code: rawCode,
+        message: `No product found matching barcode or SKU "${rawCode}".`
+      });
+    }
+
+    let lorryStock = 0;
+    let lorryFreeStock = 0;
+    if (lorryId && Array.isArray(product.lorryStocks) && product.lorryStocks.length > 0) {
+      lorryStock = product.lorryStocks[0].quantity;
+      lorryFreeStock = product.lorryStocks[0].freeQuantity || 0;
+    }
+
+    return res.json({
+      found: true,
+      product,
+      lorryStock,
+      lorryFreeStock
+    });
+  } catch (error: any) {
+    console.error('[API Scan] Error scanning barcode:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Create product
 app.post('/api/products', async (req: Request, res: Response) => {
   try {
-    const { sku, name, category, unit, unitPrice, costPrice, currentStock, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, barcode, name, category, unit, unitPrice, costPrice, currentStock, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
 
     if (!sku || !name) {
       return res.status(400).json({ error: 'SKU and Name are required.' });
@@ -1526,9 +1598,10 @@ app.post('/api/products', async (req: Request, res: Response) => {
     const initialCurrentStock = parseInt(currentStock || 0, 10);
     const initialFreeStock = parseInt(freeStock || 0, 10);
 
-    const product = await prisma.product.create({
+    const product = await (prisma.product as any).create({
       data: {
         sku: sku.trim().toUpperCase(),
+        barcode: barcode?.trim() || null,
         name: name.trim(),
         category: category?.trim() || (isRaw ? 'Raw Materials' : 'General'),
         unit: unit?.trim() || (isRaw ? 'Kg' : 'Unit'),
@@ -1577,13 +1650,14 @@ app.post('/api/products', async (req: Request, res: Response) => {
 app.put('/api/products/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { sku, name, category, unit, unitPrice, costPrice, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, barcode, name, category, unit, unitPrice, costPrice, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
     const isRaw = isRawMaterial !== undefined ? Boolean(isRawMaterial) : undefined;
 
-    const updated = await prisma.product.update({
+    const updated = await (prisma.product as any).update({
       where: { id },
       data: {
         sku: sku?.trim().toUpperCase(),
+        barcode: barcode !== undefined ? (barcode?.trim() || null) : undefined,
         name: name?.trim(),
         category: category?.trim(),
         unit: unit?.trim(),

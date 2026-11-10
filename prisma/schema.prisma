@@ -13,6 +13,7 @@ generator client {
 model Product {
   id            String   @id @default(uuid())
   sku           String   @unique
+  barcode       String?  // Retail / Manufacturer 1D/2D Barcode (e.g. EAN-13, UPC, QR)
   name          String
   category      String   @default("General")
   unit          String   @default("Unit") // e.g., Case, Box, Pack, Kg

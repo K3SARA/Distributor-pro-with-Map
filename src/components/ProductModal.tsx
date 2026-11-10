@@ -22,6 +22,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   const { currencyConfig } = useCurrency();
   const [formData, setFormData] = useState({
     sku: '',
+    barcode: '',
     name: '',
     category: 'Beverages',
     unit: 'Case',
@@ -41,6 +42,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     if (product) {
       setFormData({
         sku: product.sku,
+        barcode: product.barcode || '',
         name: product.name,
         category: product.category,
         unit: product.unit,
@@ -56,6 +58,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     } else {
       setFormData({
         sku: '',
+        barcode: '',
         name: '',
         category: defaultIsRawMaterial ? 'Raw Materials' : 'Beverages',
         unit: defaultIsRawMaterial ? 'Kg' : 'Case',
@@ -93,6 +96,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     try {
       const payload = {
         sku: formData.sku.trim().toUpperCase(),
+        barcode: formData.barcode.trim() || undefined,
         name: formData.name.trim(),
         category: formData.category.trim() || (formData.isRawMaterial ? 'Raw Materials' : 'General'),
         unit: formData.unit.trim() || (formData.isRawMaterial ? 'Kg' : 'Unit'),
@@ -200,18 +204,30 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                SKU / Material Code *
+                SKU / Code *
               </label>
               <input
                 type="text"
                 required
                 value={formData.sku}
                 onChange={e => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
-                placeholder={formData.isRawMaterial ? 'e.g. RAW-SUG-01' : 'e.g. BEV-003'}
+                placeholder={formData.isRawMaterial ? 'e.g. RAW-01' : 'e.g. BEV-003'}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Barcode (EAN-13/UPC)
+              </label>
+              <input
+                type="text"
+                value={formData.barcode}
+                onChange={e => setFormData({ ...formData, barcode: e.target.value })}
+                placeholder="e.g. 479201100234"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
               />
             </div>
             <div>
@@ -222,7 +238,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 type="text"
                 value={formData.category}
                 onChange={e => setFormData({ ...formData, category: e.target.value })}
-                placeholder={formData.isRawMaterial ? 'e.g. Raw Materials / Ingredients' : 'e.g. Beverages'}
+                placeholder={formData.isRawMaterial ? 'e.g. Ingredients' : 'e.g. Beverages'}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
               />
             </div>

@@ -34,7 +34,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  Camera,
+  Barcode
 } from 'lucide-react';
 import {
   Customer,
@@ -51,6 +53,7 @@ import { CustomerService, LorryService, ProductService, OrderService, AuthServic
 import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
 import { RepBillsSummaryModal } from '../components/RepBillsSummaryModal';
+import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 
 interface CartItem {
   productId: string;
@@ -195,6 +198,43 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     } else {
       alert(`No GPS coordinates registered for ${customer.name}. You can pin this store from the Live Fleet Map.`);
     }
+  };
+
+  // Camera Barcode Scanner Modal State
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState<boolean>(false);
+
+  // Handle scanned barcode or SKU code
+  const handleBarcodeScanned = async (code: string): Promise<boolean> => {
+    const cleanCode = code.trim().toLowerCase();
+
+    // 1. Try instant local match in loaded products
+    let matchedProduct = products.find(
+      p =>
+        (p.sku && p.sku.toLowerCase() === cleanCode) ||
+        (p.barcode && p.barcode.toLowerCase() === cleanCode) ||
+        p.id.toLowerCase() === cleanCode
+    );
+
+    // 2. If not found locally, query server scan lookup
+    if (!matchedProduct) {
+      try {
+        const scanRes = await ProductService.scanBarcode(code.trim(), selectedLorryId || undefined);
+        if (scanRes && scanRes.found && scanRes.product) {
+          matchedProduct = scanRes.product;
+          setProducts(prev => (prev.some(p => p.id === scanRes.product.id) ? prev : [...prev, scanRes.product]));
+        }
+      } catch (err) {
+        console.warn('[Scan Barcode] Server lookup error:', err);
+      }
+    }
+
+    if (!matchedProduct) {
+      return false;
+    }
+
+    // Add 1 unit of product to cart
+    addToCart(matchedProduct, 1);
+    return true;
   };
 
   // Background GPS Ping Effect (STRICTLY for mobile Sales Reps on route)
@@ -925,6 +965,17 @@ export const RepBilling: React.FC<RepBillingProps> = ({
             )}
           </button>
 
+          {/* Camera Barcode / QR Scanner Button */}
+          <button
+            type="button"
+            onClick={() => setShowBarcodeScanner(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition shadow-2xs active:scale-95 cursor-pointer shrink-0 border border-slate-700"
+            title="Scan Product Barcode or QR with Camera"
+          >
+            <Camera className="w-3.5 h-3.5 text-blue-400" />
+            <span className="hidden sm:inline text-[11px] font-bold">Scan Barcode</span>
+          </button>
+
           {/* Quick Cart Button */}
           <button
             onClick={() => setCurrentStep(2)}
@@ -1504,16 +1555,42 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl space-y-3">
                 <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
                 <p className="text-xs font-bold text-slate-600">Cart is empty</p>
-                <button
-                  type="button"
-                  onClick={() => setCurrentStep(3)}
-                  className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl shadow-xs"
-                >
-                  + Add Products
-                </button>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowBarcodeScanner(true)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4 text-blue-400" />
+                    <span>Scan Barcode</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(3)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition active:scale-95 cursor-pointer"
+                  >
+                    + Add Products
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-2">
+                {/* Cart Action Header with Scan Barcode Button */}
+                <div className="flex items-center justify-between pb-1">
+                  <span className="text-xs font-bold text-slate-700">
+                    Cart Items ({totalItemsCount})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowBarcodeScanner(true)}
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer active:scale-95"
+                    title="Scan more product barcodes with camera"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Scan (+1)</span>
+                  </button>
+                </div>
+
                 {cart.map(item => {
                   const lineTotal = item.unitPrice * item.quantity;
                   return (
@@ -1685,15 +1762,27 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               </span>
             </div>
 
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={itemSearch}
-                onChange={e => setItemSearch(e.target.value)}
-                placeholder={`Search ${selectedBrand}...`}
-                className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={itemSearch}
+                  onChange={e => setItemSearch(e.target.value)}
+                  placeholder={`Search ${selectedBrand}...`}
+                  className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowBarcodeScanner(true)}
+                className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition shrink-0 cursor-pointer active:scale-95"
+                title="Scan Barcode with Camera"
+              >
+                <Camera className="w-3.5 h-3.5 text-blue-400" />
+                <span>Scan</span>
+              </button>
             </div>
 
             {/* Products List */}
@@ -2819,6 +2908,15 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         dateRangeLabel={billsDateRangeLabel}
         lorry={selectedLorry}
         user={user}
+      />
+
+      {/* CAMERA BARCODE & QR CODE SCANNER MODAL */}
+      <BarcodeScannerModal
+        isOpen={showBarcodeScanner}
+        onClose={() => setShowBarcodeScanner(false)}
+        onScan={handleBarcodeScanned}
+        title="Mobile Barcode Scanner"
+        subtitle="Aim camera at product barcode or QR code"
       />
     </div>
   );

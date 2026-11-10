@@ -11,12 +11,14 @@ import {
   CreditCard,
   Eye,
   Building2,
-  RotateCcw
+  RotateCcw,
+  Camera
 } from 'lucide-react';
 import { Lorry, Customer, Order, Product } from '../types';
 import { LorryService, CustomerService, OrderService, ProductService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 import { CustomerModal } from '../components/CustomerModal';
+import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 
 interface BillItemRow {
   productId: string;
@@ -349,6 +351,38 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
 
   const removeReturnRow = (index: number) => {
     setReturnItems(returnItems.filter((_, i) => i !== index));
+  };
+
+  // Camera Barcode Scanner State
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState<boolean>(false);
+
+  // Handle scanned barcode in desktop/office bill entry
+  const handleBarcodeScanned = async (code: string): Promise<boolean> => {
+    const clean = code.trim().toLowerCase();
+
+    // Find in warehouseProducts by SKU, barcode, or ID
+    const matched = warehouseProducts.find(
+      p =>
+        (p.sku && p.sku.toLowerCase() === clean) ||
+        (p.barcode && p.barcode.toLowerCase() === clean) ||
+        p.id.toLowerCase() === clean
+    );
+
+    if (!matched) return false;
+    const targetProdId = matched.id;
+
+    // Check if targetProdId is already in billItems
+    const existingIndex = billItems.findIndex(i => i.productId === targetProdId);
+    if (existingIndex >= 0) {
+      updateItemRow(existingIndex, 'quantity', (billItems[existingIndex].quantity || 0) + 1);
+    } else {
+      if (billItems.length === 1 && !billItems[0].productId) {
+        updateItemRow(0, 'productId', targetProdId);
+      } else {
+        setBillItems(prev => [...prev, { productId: targetProdId, quantity: 1, freeQuantity: 0 }]);
+      }
+    }
+    return true;
   };
 
   // Calculate bill totals
@@ -881,9 +915,20 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
 
             {/* Bill Line Items Table */}
             <div className="space-y-2 pt-2">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                {billMode === 'LORRY' ? 'Items Sold From Lorry Stock' : 'Items Sold From Central Warehouse Stock'}
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                  {billMode === 'LORRY' ? 'Items Sold From Lorry Stock' : 'Items Sold From Central Warehouse Stock'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowBarcodeScanner(true)}
+                  className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer active:scale-95"
+                  title="Scan item barcode with camera"
+                >
+                  <Camera className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Scan Barcode</span>
+                </button>
+              </div>
 
               {availableItems.length === 0 ? (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs sm:text-sm text-amber-800">
@@ -1492,6 +1537,15 @@ export const BillEntry: React.FC<BillEntryProps> = ({ onViewInvoice }) => {
             console.error('Failed to reload customers', e);
           }
         }}
+      />
+
+      {/* CAMERA BARCODE / QR SCANNER MODAL */}
+      <BarcodeScannerModal
+        isOpen={showBarcodeScanner}
+        onClose={() => setShowBarcodeScanner(false)}
+        onScan={handleBarcodeScanned}
+        title="Scan Item Barcode"
+        subtitle="Point camera at product barcode or QR code"
       />
     </div>
   );

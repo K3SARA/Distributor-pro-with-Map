@@ -60,7 +60,12 @@ export const ProductService = {
   delete: (id: string) =>
     api.delete(`/products/${id}`).then(r => r.data),
   adjustStock: (id: string, payload: { quantity: number; type: string; isFreeIssue?: boolean; notes?: string; referenceId?: string }) =>
-    api.post<Product>(`/products/${id}/stock-adjust`, payload).then(r => r.data)
+    api.post<Product>(`/products/${id}/stock-adjust`, payload).then(r => r.data),
+  scanBarcode: (code: string, lorryId?: string) =>
+    api.get<{ found: boolean; product: Product; lorryStock: number; lorryFreeStock: number }>(
+      `/products/scan/${encodeURIComponent(code)}`,
+      { params: { lorryId } }
+    ).then(r => r.data)
 };
 
 export const RouteService = {

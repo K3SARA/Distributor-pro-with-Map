@@ -76,6 +76,7 @@ export interface LorryLoading {
 export interface Product {
   id: string;
   sku: string;
+  barcode?: string | null;
   name: string;
   category: string;
   unit: string;
