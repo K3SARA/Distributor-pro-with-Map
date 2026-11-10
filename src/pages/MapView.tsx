@@ -828,7 +828,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 <span className="font-bold text-slate-800 flex items-center gap-1">
                   <Clock className="w-3 h-3 text-slate-400" />
                   {selectedLorry.minutesSinceLastPing != null
-                    ? `${selectedLorry.minutesSinceLastPing} min ago`
+                    ? (selectedLorry.minutesSinceLastPing === 0 ? 'Just now' : `${selectedLorry.minutesSinceLastPing} min ago`)
                     : 'No ping yet'}
                 </span>
               </div>

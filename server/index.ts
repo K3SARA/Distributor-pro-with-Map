@@ -3149,8 +3149,8 @@ app.get('/api/map/fleet', async (req: Request, res: Response) => {
       if (l.lastLocationUpdate) {
         const diffMs = now.getTime() - new Date(l.lastLocationUpdate).getTime();
         minutesSinceLastPing = Math.round(diffMs / (1000 * 60));
-        // Consider driver online if pinged within the last 15 minutes
-        isOnline = minutesSinceLastPing <= 15;
+        // Consider driver online if pinged within the last 5 minutes
+        isOnline = minutesSinceLastPing <= 5;
       }
 
       const todaySales = l.orders.reduce((sum, o) => sum + (o.netTotal || 0), 0);

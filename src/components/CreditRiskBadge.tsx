@@ -218,3 +218,4 @@ export const CustomerAgingCard: React.FC<CustomerAgingCardProps> = ({
     </div>
   );
 };
+
