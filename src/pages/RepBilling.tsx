@@ -37,7 +37,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Camera,
-  Barcode
+  Barcode,
+  MoreHorizontal,
+  ChevronRight,
+  Radio
 } from 'lucide-react';
 import {
   Customer,
@@ -131,6 +134,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   const [showAdminPasscodeModal, setShowAdminPasscodeModal] = useState<boolean>(false);
   const [adminOverridePasscode, setAdminOverridePasscode] = useState<string | null>(null);
   const [authorizedByName, setAuthorizedByName] = useState<string | null>(null);
+
+  // Shift Hub (•••) Modal State (Apple iOS Style)
+  const [showShiftHubModal, setShowShiftHubModal] = useState<boolean>(false);
 
   // Add Customer Modal State
   const [showAddCustomerModal, setShowAddCustomerModal] = useState<boolean>(false);
@@ -869,153 +875,91 @@ export const RepBilling: React.FC<RepBillingProps> = ({
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-[#F8FAFC] text-slate-900 select-none pb-20">
-      {/* 1. SINGLE UNIFIED SLIM HEADER (50px) */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-2.5 flex items-center justify-between shadow-2xs">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
-            <Truck className="w-4 h-4" />
+      {/* 1. SINGLE UNIFIED SLIM HEADER (APPLE iOS MINIMAL STYLE) */}
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-3.5 sm:px-5 py-2.5 flex items-center justify-between shadow-2xs">
+        {/* Left: Rep Identity & Route + Tap-to-toggle GPS Beacon Pill */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
+            <Truck className="w-4.5 h-4.5 stroke-[2.2]" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-xs font-bold text-slate-900 truncate">
-              {user?.fullName || 'Route Rep'}
-            </h1>
-            <p className="text-[10px] text-slate-500 font-medium truncate">
-              {selectedLorry?.vehicleNumber || 'Route Lorry'} {selectedLorry?.route ? `• ${selectedLorry.route.code}` : ''}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h1 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                {user?.fullName || 'Route Rep'}
+              </h1>
+              {user?.role === 'REP' && (
+                <button
+                  type="button"
+                  onClick={() => setIsGpsActive(prev => !prev)}
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer shrink-0 ${
+                    isGpsActive
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                      : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                  }`}
+                  title={isGpsActive ? 'Live GPS broadcasting to office (Tap to pause)' : 'GPS paused (Tap to activate)'}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+                  <span>{isGpsActive ? 'GPS Live' : 'GPS Off'}</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">
+              <span className="font-semibold text-slate-700">{selectedLorry?.vehicleNumber || 'Route Lorry'}</span>
+              {selectedLorry?.route && (
+                <span className="text-slate-500"> • {selectedLorry.route.name || selectedLorry.route.code}</span>
+              )}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Driver Live GPS Beacon Switch (REP ROLE ONLY) */}
-          {user?.role === 'REP' && (
-            <button
-              type="button"
-              onClick={() => setIsGpsActive(prev => !prev)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer shrink-0 border ${
-                isGpsActive
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                  : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
-              }`}
-              title={
-                isGpsActive
-                  ? `Broadcasting GPS: Your vehicle location is live on the office fleet map (Last ping: ${
-                      lastGpsSyncTime
-                        ? lastGpsSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                        : 'connecting...'
-                    })`
-                  : 'GPS Paused: Tap to broadcast your lorry location to the office'
-              }
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
-                }`}
-              />
-              <span className="text-[11px] font-bold">
-                {isGpsActive ? 'GPS: Broadcast ON' : 'GPS: PAUSED'}
-              </span>
-            </button>
-          )}
-
-          {/* Smart Route Status Button */}
-          {selectedLorry?.routeId && (
-            <button
-              type="button"
-              onClick={() => {
-                loadOptimizedRoute();
-                setShowSkippedModal(true);
-              }}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/70 transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
-              title="View Smart Route Sequence & Visit Audit"
-            >
-              <Compass className="w-3.5 h-3.5 text-blue-600" />
-              <span className="text-[11px] font-bold">Route</span>
-              {routeOptimization && (
-                <span className="bg-blue-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5">
-                  {routeOptimization.visitedCount}/{routeOptimization.totalCount}
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Rep Target & Goals Button */}
-          <button
-            type="button"
-            onClick={() => {
-              loadTargets();
-              setShowTargetModal(true);
-            }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/70 transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
-            title="View Daily & Monthly Sales Target Progress"
-          >
-            <Target className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="text-[11px] font-bold">Target</span>
-            {targetProgress && (
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5 ${
-                targetProgress.dailyPercentage >= 100
-                  ? 'bg-emerald-600 text-white'
-                  : targetProgress.dailyPercentage > 0
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-200 text-slate-700'
-              }`}>
-                {targetProgress.dailyPercentage}%
-              </span>
-            )}
-          </button>
-
-          {/* Finished Bills History Button */}
-          <button
-            type="button"
-            onClick={() => {
-              loadFinishedBills();
-              setShowFinishedBillsModal(true);
-            }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition shadow-2xs active:scale-95 cursor-pointer shrink-0"
-            title="View Finished Sales Bills"
-          >
-            <Receipt className="w-3.5 h-3.5 text-blue-600" />
-            <span className="text-[11px] font-bold">Bills</span>
-            {finishedBills.length > 0 && (
-              <span className="bg-blue-600 text-white text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ml-0.5">
-                {finishedBills.length}
-              </span>
-            )}
-          </button>
-
-          {/* Camera Barcode / QR Scanner Button */}
+        {/* Right: Only 3 Ergonomic Touch Actions */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Quick Barcode Scanner Icon */}
           <button
             type="button"
             onClick={() => setShowBarcodeScanner(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 transition shadow-2xs active:scale-95 cursor-pointer shrink-0 border border-slate-700"
-            title="Scan Product Barcode or QR with Camera"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 hover:text-slate-900 transition shadow-2xs cursor-pointer border border-slate-200/60"
+            title="Scan Product Barcode"
+            aria-label="Scan Product Barcode"
           >
-            <Camera className="w-3.5 h-3.5 text-blue-400" />
-            <span className="hidden sm:inline text-[11px] font-bold">Scan Barcode</span>
+            <Camera className="w-4 h-4 text-slate-700" />
           </button>
 
-          {/* Quick Cart Button */}
+          {/* Quick Cart Action Button */}
           <button
+            type="button"
             onClick={() => setCurrentStep(2)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs active:scale-95 cursor-pointer border ${
               cart.length > 0
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'bg-blue-600 text-white border-blue-600 shadow-blue-500/20'
+                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
             }`}
+            title="View Cart"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Cart ({totalItemsCount})</span>
+            <span>Cart</span>
+            {totalItemsCount > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                cart.length > 0 ? 'bg-white text-blue-700' : 'bg-slate-300 text-slate-800'
+              }`}>
+                {totalItemsCount}
+              </span>
+            )}
           </button>
 
-          {/* Logout Button */}
-          {onLogout && (
-            <button
-              onClick={onLogout}
-              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
-              title="Log out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
+          {/* Shift Hub (•••) Consolidated Menu Button */}
+          <button
+            type="button"
+            onClick={() => setShowShiftHubModal(true)}
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 hover:text-slate-900 transition shadow-2xs cursor-pointer border border-slate-200/60 relative"
+            title="Shift Hub & Route Menu"
+            aria-label="Shift Hub Menu"
+          >
+            <MoreHorizontal className="w-4 h-4 text-slate-700" />
+            {(finishedBills.length > 0 || (targetProgress && targetProgress.dailyPercentage > 0)) && (
+              <span className="w-2 h-2 rounded-full bg-blue-600 absolute top-1.5 right-1.5 ring-2 ring-white" />
+            )}
+          </button>
         </div>
       </header>
 
@@ -3012,6 +2956,187 @@ export const RepBilling: React.FC<RepBillingProps> = ({
           setShowAdminPasscodeModal(false);
         }}
       />
+
+      {/* APPLE iOS STYLE SHIFT HUB BOTTOM SHEET / MODAL */}
+      {showShiftHubModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+            {/* iOS Pull indicator handle (mobile) */}
+            <div className="pt-2.5 pb-1 flex justify-center sm:hidden">
+              <div className="w-12 h-1.5 bg-slate-300 rounded-full" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-slate-900 to-slate-700 text-white flex items-center justify-center shadow-xs">
+                  <Truck className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900 leading-tight">Shift Hub & Route Menu</h2>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    {selectedLorry?.vehicleNumber || 'Route Lorry'} {selectedLorry?.route ? `• ${selectedLorry.route.name}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShiftHubModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center text-sm font-bold transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Hub Content */}
+            <div className="p-4 space-y-3.5 overflow-y-auto">
+              {/* GPS Live Telemetry Card */}
+              {user?.role === 'REP' && (
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      isGpsActive ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+                    }`}>
+                      <Radio className={`w-5 h-5 ${isGpsActive ? 'animate-pulse' : ''}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-800">Office Fleet Tracking</span>
+                        <span className={`inline-block w-2 h-2 rounded-full ${isGpsActive ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
+                      </div>
+                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                        {isGpsActive ? 'Broadcasting live position to office map' : 'Location broadcast paused'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsGpsActive(prev => !prev)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 border ${
+                      isGpsActive
+                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
+                    }`}
+                  >
+                    {isGpsActive ? 'Pause' : 'Broadcast'}
+                  </button>
+                </div>
+              )}
+
+              {/* Navigation & Operational Hub Action List */}
+              <div className="space-y-2">
+                {/* 1. Route Stops & Geofenced Sequence */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadOptimizedRoute();
+                    setShowSkippedModal(true);
+                    setShowShiftHubModal(false);
+                  }}
+                  className="w-full p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 transition flex items-center justify-between text-left group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                      <Milestone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800">Smart Route & Sequence</span>
+                        {routeStatus && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700">
+                            {routeStatus.visitedCount}/{routeStatus.totalCustomers} Visited
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Optimized stop order, geofence check-ins, and shop list
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition" />
+                </button>
+
+                {/* 2. Rep Sales Targets & Progress */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadTargets();
+                    setShowTargetModal(true);
+                    setShowShiftHubModal(false);
+                  }}
+                  className="w-full p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-purple-400 hover:bg-purple-50/30 transition flex items-center justify-between text-left group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                      <Target className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800">Sales Target & Commission</span>
+                        {targetProgress && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-700">
+                            {Math.round(targetProgress.dailyPercentage)}% Achieved
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Daily & monthly sales targets, quotas and incentives
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition" />
+                </button>
+
+                {/* 3. Invoices & Daily Sales Ledger */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadFinishedBills();
+                    setShowFinishedBillsModal(true);
+                    setShowShiftHubModal(false);
+                  }}
+                  className="w-full p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/30 transition flex items-center justify-between text-left group shadow-2xs cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                      <Receipt className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800">Today's Invoices & Bills</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                          {finishedBills.length} Bill{finishedBills.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Reprint invoices, view summary report, and verify collections
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition" />
+                </button>
+              </div>
+
+              {/* End Shift & Logout */}
+              {onLogout && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowShiftHubModal(false);
+                      onLogout();
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 active:scale-98 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 border border-rose-200 transition cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4 text-rose-600" />
+                    <span>End Shift & Sign Out</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
