@@ -347,6 +347,46 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     }
 
     let isMounted = true;
+    let watchId: number | null = null;
+
+    // 1. Instant Real-Time GPS Cutoff Watcher
+    // If driver swipes down notification bar and turns off Location/GPS, this fires within ~1 second!
+    if (navigator.geolocation.watchPosition) {
+      watchId = navigator.geolocation.watchPosition(
+        pos => {
+          if (!isMounted) return;
+          if (pos.coords.latitude && pos.coords.longitude) {
+            // Keep coordinates live
+            setCurrentGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        },
+        err => {
+          console.warn('[Real-Time GPS Watcher] Cutoff detected:', err.message);
+          if (isMounted && isRepRole && (err.code === 1 || err.code === 2)) {
+            setGpsStatus('DENIED');
+            setGpsError(
+              err.code === 1
+                ? 'Location permission was turned off. Turn GPS back on to continue invoicing.'
+                : 'Device GPS was turned off. Please re-enable Location in phone settings to continue.'
+            );
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+      );
+    }
+
+    // 2. Browser Permission Status Change Listener
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'geolocation' }).then(status => {
+        status.onchange = () => {
+          if (!isMounted) return;
+          if (status.state === 'denied') {
+            setGpsStatus('DENIED');
+            setGpsError('Location permission was revoked in browser settings. Turn GPS back on to continue.');
+          }
+        };
+      }).catch(() => {});
+    }
 
     const pingLocation = () => {
       if (!isGpsActive || !isMounted) return;
@@ -404,6 +444,9 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     return () => {
       isMounted = false;
       clearInterval(interval);
+      if (watchId !== null && navigator.geolocation.clearWatch) {
+        navigator.geolocation.clearWatch(watchId);
+      }
     };
   }, [selectedLorryId, isGpsActive, user]);
 
