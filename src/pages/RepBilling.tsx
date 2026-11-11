@@ -175,9 +175,90 @@ export const RepBilling: React.FC<RepBillingProps> = ({
   // Live GPS Beacon State (Broadcast driver location to office fleet map)
   // STRICT: Only mobile sales reps on route (role === 'REP') are allowed to broadcast vehicle GPS!
   const isRepRole = user?.role === 'REP';
+  type GpsGateStatus = 'CHECKING' | 'GRANTED' | 'DENIED' | 'UNSUPPORTED';
+  const [gpsStatus, setGpsStatus] = useState<GpsGateStatus>(isRepRole ? 'CHECKING' : 'GRANTED');
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [isVerifyingGps, setIsVerifyingGps] = useState<boolean>(false);
   const [isGpsActive, setIsGpsActive] = useState<boolean>(isRepRole);
   const [currentGpsCoords, setCurrentGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [lastGpsSyncTime, setLastGpsSyncTime] = useState<Date | null>(null);
+
+  // Mandatory GPS Access Verifier for Sales Reps
+  const verifyAndEnableGps = (showToastOnSuccess = false) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGpsStatus('UNSUPPORTED');
+      setGpsError('Geolocation is not supported by your mobile browser. Please use Chrome or Safari.');
+      return;
+    }
+
+    setIsVerifyingGps(true);
+    setGpsError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Math.abs(lat) > 0.001 || Math.abs(lng) > 0.001) {
+          setCurrentGpsCoords({ lat, lng });
+          setGpsStatus('GRANTED');
+          setIsGpsActive(true);
+          setLastGpsSyncTime(new Date());
+
+          const lorryToUpdate = selectedLorryId || initialLorryId || user?.lorryId;
+          if (lorryToUpdate) {
+            const payload = {
+              latitude: lat,
+              longitude: lng,
+              speed: pos.coords.speed != null && pos.coords.speed >= 0 ? Math.round(pos.coords.speed * 3.6) : null,
+              heading: pos.coords.heading != null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0 ? Math.round(pos.coords.heading) : null,
+              userId: user?.id
+            };
+            MapService.updateDriverLocation(lorryToUpdate, payload)
+              .then((res: any) => {
+                const visitedShop = res?.autoVisitedShop || res?.data?.autoVisitedShop;
+                if (visitedShop) {
+                  setAutoCheckinToast(`📍 Arrived at "${visitedShop}" — Geofence Verified!`);
+                  setTimeout(() => setAutoCheckinToast(null), 7000);
+                  loadOptimizedRoute(undefined, { lat, lng });
+                }
+              })
+              .catch(err => console.warn('[Driver GPS Initial Beacon] Update failed:', err));
+          }
+
+          if (showToastOnSuccess) {
+            setAutoCheckinToast('🟢 GPS live signal verified & coordinates refreshed!');
+            setTimeout(() => setAutoCheckinToast(null), 4000);
+          }
+        } else {
+          setGpsStatus('DENIED');
+          setGpsError('Invalid GPS coordinates received. Please ensure your device has a clear GPS view.');
+        }
+        setIsVerifyingGps(false);
+      },
+      err => {
+        console.warn('[Mandatory GPS Check] Error:', err);
+        setIsVerifyingGps(false);
+        setGpsStatus('DENIED');
+        if (err.code === 1) {
+          setGpsError('Location permission denied. Please enable location in your browser and phone settings.');
+        } else if (err.code === 2) {
+          setGpsError('GPS signal unavailable. Please ensure GPS / Location is switched ON in your phone settings.');
+        } else if (err.code === 3) {
+          setGpsError('GPS request timed out. Please check your phone settings and try again.');
+        } else {
+          setGpsError(err.message || 'Unable to access GPS location.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  // Auto-verify GPS on mount for mobile Reps
+  useEffect(() => {
+    if (isRepRole) {
+      verifyAndEnableGps();
+    }
+  }, [isRepRole]);
 
   // Load AI TSP Optimized Route for current lorry
   const loadOptimizedRoute = async (targetLorry?: Lorry, coords?: { lat: number; lng: number } | null) => {
@@ -304,6 +385,15 @@ export const RepBilling: React.FC<RepBillingProps> = ({
         },
         err => {
           console.warn('[Driver GPS Beacon] Geolocation error:', err.message);
+          // If rep revoked permission or turned off location midway through shift, re-lock the screen!
+          if (isMounted && isRepRole && (err.code === 1 || err.code === 2)) {
+            setGpsStatus('DENIED');
+            setGpsError(
+              err.code === 1
+                ? 'Location permission was turned off. Turn GPS back on to continue invoicing.'
+                : 'GPS signal lost or turned off. Please re-enable location.'
+            );
+          }
         },
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 }
       );
@@ -873,6 +963,109 @@ export const RepBilling: React.FC<RepBillingProps> = ({
     );
   }
 
+  // MANDATORY GPS GATE: Sales Reps cannot pass or enter until mobile GPS is active and authorized!
+  if (isRepRole && gpsStatus !== 'GRANTED') {
+    return (
+      <div className="min-h-screen w-full flex flex-col justify-between bg-slate-950 text-white select-none px-4 py-6 sm:p-8 relative overflow-hidden">
+        {/* Subtle decorative background glow */}
+        <div className="absolute -top-32 -left-32 w-80 h-80 rounded-full bg-blue-600/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-80 h-80 rounded-full bg-emerald-600/15 blur-3xl pointer-events-none" />
+
+        {/* Top Header */}
+        <div className="relative z-10 flex items-center justify-between border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-md">
+              <Truck className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-slate-200 block leading-tight">
+                {user?.fullName || 'Sales Rep'}
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {selectedLorry?.vehicleNumber || user?.lorry?.vehicleNumber || 'Assigned Lorry'}
+              </span>
+            </div>
+          </div>
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 text-xs font-medium border border-slate-700/60 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Log out</span>
+            </button>
+          )}
+        </div>
+
+        {/* Center Card with Radar Sonar animation */}
+        <div className="relative z-10 my-auto py-6 max-w-md mx-auto w-full text-center flex flex-col items-center">
+          {/* Animated Pulsing Radar Beacon */}
+          <div className="relative w-32 h-32 flex items-center justify-center mb-6">
+            <div className="absolute inset-0 rounded-full bg-blue-500/10 animate-ping" />
+            <div className="absolute inset-2 rounded-full border-2 border-dashed border-blue-400/40 animate-spin" />
+            <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30 text-white">
+              <Navigation className="w-10 h-10 animate-pulse text-white -rotate-45" />
+            </div>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-950/80 border border-blue-500/40 text-blue-300 text-[11px] font-bold tracking-wide uppercase mb-3 shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+            <span>Mandatory Rep Requirement</span>
+          </div>
+
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight mb-2">
+            Turn On Mobile GPS to Begin
+          </h2>
+
+          <p className="text-xs sm:text-sm text-slate-300 max-w-sm mb-6 leading-relaxed">
+            Company policy requires active GPS telemetry while on duty. Your mobile coordinates are used to verify shop visits, map daily deliveries, and broadcast lorry location to the office.
+          </p>
+
+          {/* Error / Instruction Alert */}
+          {gpsError && (
+            <div className="w-full text-left p-4 rounded-2xl bg-rose-950/50 border border-rose-500/40 text-rose-200 mb-6 text-xs shadow-md">
+              <div className="flex items-start gap-2.5 mb-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="font-bold text-rose-300">{gpsError}</span>
+              </div>
+              <div className="pl-6 space-y-1 text-[11px] text-slate-300">
+                <p>1. Swipe down phone notifications and turn <b>Location / GPS ON</b>.</p>
+                <p>2. Tap the lock <b>🔒</b> icon in your browser address bar.</p>
+                <p>3. Set <b>Location</b> to <b>Allow</b>, then tap the button below.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Primary Action Button */}
+          <button
+            type="button"
+            onClick={() => verifyAndEnableGps()}
+            disabled={isVerifyingGps}
+            className="w-full py-3.5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isVerifyingGps ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Acquiring Live GPS Satellite...</span>
+              </>
+            ) : (
+              <>
+                <Radio className="w-4 h-4 text-white animate-pulse" />
+                <span>Verify & Enable GPS Telemetry</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Footer info */}
+        <div className="relative z-10 text-center text-[11px] text-slate-500 border-t border-slate-800/80 pt-3">
+          <span>🔒 Encrypted Fleet Telemetry &bull; Samantha Distribution &bull; Powered by Mapbox/OSM</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-full flex flex-col bg-[#F8FAFC] text-slate-900 select-none pb-20">
       {/* 1. SINGLE UNIFIED SLIM HEADER (APPLE iOS MINIMAL STYLE) */}
@@ -890,16 +1083,12 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               {user?.role === 'REP' && (
                 <button
                   type="button"
-                  onClick={() => setIsGpsActive(prev => !prev)}
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer shrink-0 ${
-                    isGpsActive
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                      : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
-                  }`}
-                  title={isGpsActive ? 'Live GPS broadcasting to office (Tap to pause)' : 'GPS paused (Tap to activate)'}
+                  onClick={() => verifyAndEnableGps(true)}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border transition cursor-pointer shrink-0 bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100"
+                  title="GPS broadcasting live to office map (Tap to refresh coordinates)"
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${isGpsActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                  <span>{isGpsActive ? 'GPS Live' : 'GPS Off'}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>GPS Live</span>
                 </button>
               )}
             </div>
@@ -2994,31 +3183,28 @@ export const RepBilling: React.FC<RepBillingProps> = ({
               {user?.role === 'REP' && (
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                      isGpsActive ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
-                    }`}>
-                      <Radio className={`w-5 h-5 ${isGpsActive ? 'animate-pulse' : ''}`} />
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-emerald-100 text-emerald-600">
+                      <Radio className="w-5 h-5 animate-pulse" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-bold text-slate-800">Office Fleet Tracking</span>
-                        <span className={`inline-block w-2 h-2 rounded-full ${isGpsActive ? 'bg-emerald-500 animate-ping' : 'bg-rose-500'}`} />
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                       </div>
-                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                        {isGpsActive ? 'Broadcasting live position to office map' : 'Location broadcast paused'}
+                      <p className="text-[10px] text-slate-600 truncate mt-0.5">
+                        Live GPS broadcast active (Enforced by company)
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsGpsActive(prev => !prev)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 border ${
-                      isGpsActive
-                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200'
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-xs'
-                    }`}
+                    onClick={() => {
+                      verifyAndEnableGps(true);
+                      setShowShiftHubModal(false);
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 border bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs"
                   >
-                    {isGpsActive ? 'Pause' : 'Broadcast'}
+                    Refresh GPS
                   </button>
                 </div>
               )}
