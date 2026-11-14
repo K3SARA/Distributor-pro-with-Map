@@ -394,7 +394,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
           include: {
             route: true
           }
-        }
+        },
+        supplier: true
       }
     });
 
@@ -407,9 +408,18 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         id: user.id,
         username: user.username,
         fullName: user.fullName,
-        role: user.role, // 'ADMIN' | 'REP'
+        role: user.role, // 'ADMIN' | 'REP' | 'SUPPLIER'
         phone: user.phone,
         lorryId: user.lorryId,
+        supplierId: user.supplierId,
+        supplier: user.supplier ? {
+          id: user.supplier.id,
+          code: user.supplier.code,
+          name: user.supplier.name,
+          phone: user.supplier.phone,
+          email: user.supplier.email,
+          outstandingBalance: user.supplier.outstandingBalance
+        } : null,
         lorry: user.lorry ? {
           id: user.lorry.id,
           vehicleNumber: user.lorry.vehicleNumber,
@@ -431,6 +441,7 @@ app.get('/api/users', async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       include: {
+        supplier: true,
         lorry: {
           include: {
             route: true
@@ -479,7 +490,7 @@ app.get('/api/users', async (_req: Request, res: Response) => {
 // Create new user (admin adds reps or admins with targets)
 app.post('/api/users', async (req: Request, res: Response) => {
   try {
-    const { username, password, fullName, role, phone, lorryId, monthlyTarget, dailyTarget, targetNewClients } = req.body;
+    const { username, password, fullName, role, phone, lorryId, supplierId, monthlyTarget, dailyTarget, targetNewClients } = req.body;
     if (!username || !password || !fullName) {
       return res.status(400).json({ error: 'Username, password and full name required' });
     }
@@ -491,20 +502,24 @@ app.post('/api/users', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Username already taken' });
     }
 
+    const validRole = role === 'ADMIN' ? 'ADMIN' : (role === 'SUPPLIER' ? 'SUPPLIER' : 'REP');
+
     const user = await prisma.user.create({
       data: {
         username: String(username).trim(),
         password: String(password).trim(),
         fullName: String(fullName).trim(),
-        role: role === 'ADMIN' ? 'ADMIN' : 'REP',
+        role: validRole,
         phone: phone ? String(phone).trim() : null,
         lorryId: lorryId || null,
+        supplierId: supplierId || null,
         status: 'ACTIVE',
         monthlyTarget: monthlyTarget ? Number(monthlyTarget) : 0,
         dailyTarget: dailyTarget ? Number(dailyTarget) : 0,
         targetNewClients: targetNewClients ? Number(targetNewClients) : 0
       },
       include: {
+        supplier: true,
         lorry: {
           include: {
             route: true
@@ -527,14 +542,15 @@ app.post('/api/users', async (req: Request, res: Response) => {
 app.put('/api/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { password, fullName, role, phone, lorryId, status, monthlyTarget, dailyTarget, targetNewClients } = req.body;
+    const { password, fullName, role, phone, lorryId, supplierId, status, monthlyTarget, dailyTarget, targetNewClients } = req.body;
 
     const data: any = {};
     if (password) data.password = String(password).trim();
     if (fullName) data.fullName = String(fullName).trim();
-    if (role) data.role = role === 'ADMIN' ? 'ADMIN' : 'REP';
+    if (role) data.role = role === 'ADMIN' ? 'ADMIN' : (role === 'SUPPLIER' ? 'SUPPLIER' : 'REP');
     if (phone !== undefined) data.phone = phone ? String(phone).trim() : null;
     if (lorryId !== undefined) data.lorryId = lorryId || null;
+    if (supplierId !== undefined) data.supplierId = supplierId || null;
     if (status) data.status = status;
     if (monthlyTarget !== undefined) data.monthlyTarget = Number(monthlyTarget) || 0;
     if (dailyTarget !== undefined) data.dailyTarget = Number(dailyTarget) || 0;
@@ -544,6 +560,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       where: { id },
       data,
       include: {
+        supplier: true,
         lorry: {
           include: {
             route: true
@@ -589,6 +606,373 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     await syncFleetAndRepsToEmployees();
 
     return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
+// SUPPLIER EXECUTIVE PORTAL API (TIER 1 ENTERPRISE)
+// ========================================================
+
+// 1. Supplier Dashboard Overview
+app.get('/api/supplier-portal/dashboard', async (req: Request, res: Response) => {
+  try {
+    const { supplierId } = req.query;
+
+    let targetSupplier: any = null;
+    if (supplierId && typeof supplierId === 'string') {
+      targetSupplier = await prisma.supplier.findUnique({
+        where: { id: supplierId }
+      });
+    }
+
+    if (!targetSupplier) {
+      targetSupplier = await prisma.supplier.findFirst({
+        orderBy: { createdAt: 'asc' }
+      });
+    }
+
+    if (!targetSupplier) {
+      return res.json({
+        supplier: null,
+        stats: {
+          totalProducts: 0,
+          totalWarehouseStock: 0,
+          totalFloatingStock: 0,
+          lowStockCount: 0,
+          todaySales: 0,
+          monthSales: 0,
+          allTimeSales: 0,
+          outstandingBalance: 0
+        },
+        products: [],
+        lorries: [],
+        recentDispatches: [],
+        topSelling: []
+      });
+    }
+
+    // 1. All products for this supplier
+    const products = await prisma.product.findMany({
+      where: { supplierId: targetSupplier.id },
+      orderBy: { name: 'asc' }
+    });
+
+    const productIds = products.map(p => p.id);
+
+    // Stock totals
+    const totalWarehouseStock = products.reduce((acc, p) => acc + (p.currentStock || 0), 0);
+    const lowStockCount = products.filter(p => p.currentStock <= p.minStockAlert).length;
+
+    // 2. Lorry floating stock for supplier's products
+    let totalFloatingStock = 0;
+    const lorryStocks = productIds.length > 0 ? await prisma.lorryStock.findMany({
+      where: { productId: { in: productIds } },
+      include: {
+        lorry: {
+          include: {
+            route: true
+          }
+        },
+        product: true
+      }
+    }) : [];
+
+    totalFloatingStock = lorryStocks.reduce((acc, s) => acc + (s.quantity || 0) + (s.freeQuantity || 0), 0);
+
+    // Group floating stock by lorry
+    const lorryStockMap = new Map<string, { lorry: any; itemsCount: number; unitsCount: number }>();
+    lorryStocks.forEach(ls => {
+      if (!ls.lorry) return;
+      const existing = lorryStockMap.get(ls.lorry.id) || {
+        lorry: {
+          id: ls.lorry.id,
+          vehicleNumber: ls.lorry.vehicleNumber,
+          driverName: ls.lorry.driverName,
+          driverPhone: ls.lorry.driverPhone,
+          route: ls.lorry.route?.name || 'Assigned Route',
+          currentLatitude: ls.lorry.currentLatitude,
+          currentLongitude: ls.lorry.currentLongitude,
+          speed: ls.lorry.speed,
+          heading: ls.lorry.heading,
+          lastLocationUpdate: ls.lorry.lastLocationUpdate
+        },
+        itemsCount: 0,
+        unitsCount: 0
+      };
+      existing.itemsCount += 1;
+      existing.unitsCount += (ls.quantity || 0) + (ls.freeQuantity || 0);
+      lorryStockMap.set(ls.lorry.id, existing);
+    });
+
+    // 3. Sales statistics for supplier products
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    let todaySales = 0;
+    let monthSales = 0;
+    let allTimeSales = 0;
+    let topSelling: any[] = [];
+
+    if (productIds.length > 0) {
+      const allOrderItems = await prisma.orderItem.findMany({
+        where: {
+          productId: { in: productIds },
+          order: { status: { not: 'CANCELLED' } }
+        },
+        include: {
+          order: {
+            select: {
+              createdAt: true,
+              deliveredAt: true
+            }
+          },
+          product: {
+            select: {
+              name: true,
+              sku: true
+            }
+          }
+        }
+      });
+
+      const productSalesMap = new Map<string, { name: string; sku: string; unitsSold: number; totalRevenue: number }>();
+
+      allOrderItems.forEach(item => {
+        const itemRevenue = item.lineTotal || (item.quantity * item.unitPrice);
+        allTimeSales += itemRevenue;
+
+        const orderDate = new Date(item.order.deliveredAt || item.order.createdAt);
+        if (orderDate >= startOfToday) {
+          todaySales += itemRevenue;
+        }
+        if (orderDate >= startOfMonth) {
+          monthSales += itemRevenue;
+        }
+
+        const pData = productSalesMap.get(item.productId) || {
+          name: item.product.name,
+          sku: item.product.sku,
+          unitsSold: 0,
+          totalRevenue: 0
+        };
+        pData.unitsSold += item.quantity;
+        pData.totalRevenue += itemRevenue;
+        productSalesMap.set(item.productId, pData);
+      });
+
+      topSelling = Array.from(productSalesMap.values())
+        .sort((a, b) => b.totalRevenue - a.totalRevenue)
+        .slice(0, 5);
+    }
+
+    // 4. All active fleet lorries (with live GPS)
+    const activeLorries = await prisma.lorry.findMany({
+      where: { status: 'ACTIVE' },
+      include: { route: true }
+    });
+
+    const fleetLorries = activeLorries.map(l => {
+      const supplierStockOnBoard = lorryStockMap.get(l.id)?.unitsCount || 0;
+      return {
+        id: l.id,
+        vehicleNumber: l.vehicleNumber,
+        driverName: l.driverName,
+        driverPhone: l.driverPhone,
+        routeName: l.route?.name || 'Unassigned Route',
+        routeCode: l.route?.code || '',
+        currentLatitude: l.currentLatitude,
+        currentLongitude: l.currentLongitude,
+        speed: l.speed,
+        heading: l.heading,
+        lastLocationUpdate: l.lastLocationUpdate,
+        supplierUnitsOnBoard: supplierStockOnBoard
+      };
+    });
+
+    // 5. Recent dispatches / Purchase Orders from supplier
+    const recentDispatches = await prisma.purchaseOrder.findMany({
+      where: { supplierId: targetSupplier.id },
+      orderBy: { date: 'desc' },
+      take: 6,
+      include: {
+        items: {
+          include: { product: true }
+        }
+      }
+    });
+
+    return res.json({
+      supplier: {
+        id: targetSupplier.id,
+        code: targetSupplier.code,
+        name: targetSupplier.name,
+        contactPerson: targetSupplier.contactPerson,
+        phone: targetSupplier.phone,
+        email: targetSupplier.email,
+        city: targetSupplier.city,
+        paymentTerms: targetSupplier.paymentTerms,
+        outstandingBalance: targetSupplier.outstandingBalance || 0
+      },
+      stats: {
+        totalProducts: products.length,
+        totalWarehouseStock,
+        totalFloatingStock,
+        lowStockCount,
+        todaySales: Math.round(todaySales),
+        monthSales: Math.round(monthSales),
+        allTimeSales: Math.round(allTimeSales),
+        outstandingBalance: targetSupplier.outstandingBalance || 0
+      },
+      products: products.map(p => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        category: p.category,
+        unit: p.unit,
+        unitPrice: p.unitPrice,
+        costPrice: p.costPrice,
+        currentStock: p.currentStock,
+        freeStock: p.freeStock,
+        damageStock: p.damageStock,
+        minStockAlert: p.minStockAlert,
+        freeRatioBuy: p.freeRatioBuy,
+        freeRatioGet: p.freeRatioGet
+      })),
+      lorries: fleetLorries,
+      recentDispatches,
+      topSelling
+    });
+  } catch (err: any) {
+    console.error('[API Supplier Portal] Dashboard error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to load supplier dashboard' });
+  }
+});
+
+// 2. Supplier Dispatches New Stock to Distributor Warehouse (PO / Dispatch)
+app.post('/api/supplier-portal/dispatch', async (req: Request, res: Response) => {
+  try {
+    const { supplierId, items, notes, supplierInvoiceNumber } = req.body;
+    if (!supplierId || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'supplierId and at least one item are required' });
+    }
+
+    const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!supplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    let subtotal = 0;
+    const poItemsData = items.map((item: any) => {
+      const qty = Number(item.quantity) || 0;
+      const freeQty = Number(item.freeQuantity) || 0;
+      const cost = Number(item.costPrice) || 0;
+      const lineTotal = qty * cost;
+      subtotal += lineTotal;
+      return {
+        productId: item.productId,
+        quantity: qty,
+        freeQuantity: freeQty,
+        costPrice: cost,
+        lineTotal
+      };
+    });
+
+    const orderNumber = `SUP-DISP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const newPO = await prisma.purchaseOrder.create({
+      data: {
+        orderNumber,
+        supplierInvoiceNumber: supplierInvoiceNumber ? String(supplierInvoiceNumber).trim() : null,
+        supplierId,
+        status: 'RECEIVED',
+        paymentStatus: 'UNPAID',
+        paymentMethod: 'BANK_TRANSFER',
+        date: new Date(),
+        subtotal,
+        totalAmount: subtotal,
+        paidAmount: 0,
+        notes: notes ? String(notes).trim() : 'Dispatched via Supplier Portal',
+        receivedAt: new Date(),
+        items: {
+          create: poItemsData
+        }
+      },
+      include: {
+        items: {
+          include: { product: true }
+        }
+      }
+    });
+
+    // Update warehouse stock & log stock movement
+    for (const item of poItemsData) {
+      await prisma.product.update({
+        where: { id: item.productId },
+        data: {
+          currentStock: { increment: item.quantity },
+          freeStock: { increment: item.freeQuantity },
+          costPrice: item.costPrice > 0 ? item.costPrice : undefined
+        }
+      });
+
+      await prisma.stockMovement.create({
+        data: {
+          productId: item.productId,
+          type: 'INBOUND',
+          quantity: item.quantity,
+          isFreeIssue: false,
+          referenceId: newPO.id,
+          notes: `Supplier Portal Dispatch: ${orderNumber}`
+        }
+      });
+
+      if (item.freeQuantity > 0) {
+        await prisma.stockMovement.create({
+          data: {
+            productId: item.productId,
+            type: 'INBOUND',
+            quantity: item.freeQuantity,
+            isFreeIssue: true,
+            referenceId: newPO.id,
+            notes: `Supplier Portal Free Issue: ${orderNumber}`
+          }
+        });
+      }
+    }
+
+    // Update supplier outstanding balance
+    await prisma.supplier.update({
+      where: { id: supplierId },
+      data: {
+        outstandingBalance: { increment: subtotal }
+      }
+    });
+
+    return res.status(201).json(newPO);
+  } catch (err: any) {
+    console.error('[API Supplier Portal] Dispatch creation error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to dispatch stock' });
+  }
+});
+
+// 3. List All Suppliers
+app.get('/api/supplier-portal/suppliers', async (_req: Request, res: Response) => {
+  try {
+    const suppliers = await prisma.supplier.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        _count: {
+          select: {
+            products: true,
+            purchaseOrders: true
+          }
+        }
+      }
+    });
+    return res.json(suppliers);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -8410,10 +8794,10 @@ if (fs.existsSync(distPath)) {
 
 async function seedIfEmpty() {
   try {
-    // Only ensure a default Administrator exists if no users exist in the database
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-      console.log('[System Init] Clean database detected. Creating initial administrator account...');
+    // Ensure default Administrator exists
+    const adminUser = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+    if (!adminUser) {
+      console.log('[System Init] Creating initial administrator account...');
       await prisma.user.create({
         data: {
           username: 'admin',
@@ -8423,6 +8807,47 @@ async function seedIfEmpty() {
         }
       });
       console.log('[System Init] Default admin user initialized: admin / admin123');
+    }
+
+    // Ensure default Enterprise Supplier exists (Tier 1 Principal)
+    const supplierUser = await prisma.user.findFirst({ where: { role: 'SUPPLIER' } });
+    if (!supplierUser) {
+      console.log('[System Init] Initializing Enterprise Supplier Principal...');
+      let firstSupplier = await prisma.supplier.findFirst();
+      if (!firstSupplier) {
+        firstSupplier = await prisma.supplier.create({
+          data: {
+            code: 'SUP-001',
+            name: 'Ceylon FMCG Brands (Pvt) Ltd',
+            contactPerson: 'Mr. Rohan Perera',
+            phone: '+94 11 234 5678',
+            email: 'supply@ceylonfmcg.lk',
+            address: '42, Industrial Zone, Colombo',
+            city: 'Colombo',
+            paymentTerms: 'NET 30',
+            outstandingBalance: 125000.0
+          }
+        });
+      }
+
+      await prisma.user.create({
+        data: {
+          username: 'supplier',
+          password: 'supplier123',
+          fullName: 'Principal Supplier Director',
+          role: 'SUPPLIER',
+          supplierId: firstSupplier.id
+        }
+      });
+      console.log('[System Init] Default supplier user initialized: supplier / supplier123');
+
+      // Link any unassigned products to this principal supplier so dashboard is populated
+      if (firstSupplier) {
+        await prisma.product.updateMany({
+          where: { supplierId: null },
+          data: { supplierId: firstSupplier.id }
+        });
+      }
     }
 
     const employeeCount = await prisma.employee.count();

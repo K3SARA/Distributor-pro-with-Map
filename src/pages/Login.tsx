@@ -86,6 +86,46 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           Samantha Distributor &bull; Fast Reliable Delivery
         </p>
 
+        {/* Portal Quick Selector Tabs */}
+        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg mb-5 text-[11px] font-semibold text-slate-600">
+          <button
+            type="button"
+            onClick={() => {
+              setUsername('supplier');
+              setPassword('supplier123');
+            }}
+            className={`py-1.5 px-1 rounded text-center transition cursor-pointer ${
+              username === 'supplier' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
+            }`}
+          >
+            🏢 Supplier
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setUsername('admin');
+              setPassword('admin123');
+            }}
+            className={`py-1.5 px-1 rounded text-center transition cursor-pointer ${
+              username === 'admin' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
+            }`}
+          >
+            🏭 Agency ERP
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setUsername('navin');
+              setPassword('navin123');
+            }}
+            className={`py-1.5 px-1 rounded text-center transition cursor-pointer ${
+              username === 'navin' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
+            }`}
+          >
+            🚚 Sales Rep
+          </button>
+        </div>
+
         {/* Error Alert */}
         {errorMessage && (
           <div className="mb-5 p-3 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs flex items-center gap-2">
@@ -176,6 +216,16 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           {/* Quick Demo Credentials Drawer */}
           {showQuickFill && (
             <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5 justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername('supplier');
+                  setPassword('supplier123');
+                }}
+                className="px-2.5 py-1 text-[11px] rounded bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold transition cursor-pointer"
+              >
+                Supplier (supplier / supplier123)
+              </button>
               <button
                 type="button"
                 onClick={() => {

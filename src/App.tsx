@@ -26,6 +26,7 @@ import { Manufacturing } from './pages/Manufacturing';
 import { HrPayroll } from './pages/HrPayroll';
 import { Login } from './pages/Login';
 import { RepMobilePortal } from './pages/RepMobilePortal';
+import { SupplierPortal } from './pages/SupplierPortal';
 import { InvoiceModal } from './components/InvoiceModal';
 import { CurrencyProvider, useCurrency, CURRENCIES } from './context/CurrencyContext';
 import { Order, User } from './types';
@@ -55,7 +56,12 @@ export const AppContent: React.FC = () => {
     return <Login onLoginSuccess={setCurrentUser} />;
   }
 
-  // 2. Route Sales Rep: Render dedicated Mobile Rep Portal (Separate from desktop)
+  // 2. Enterprise Supplier Portal (Tier 1 Principal Brand)
+  if (currentUser.role === 'SUPPLIER') {
+    return <SupplierPortal user={currentUser} onLogout={handleLogout} />;
+  }
+
+  // 3. Route Sales Rep: Render dedicated Mobile Rep Portal (Separate from desktop)
   if (currentUser.role === 'REP') {
     return <RepMobilePortal user={currentUser} onLogout={handleLogout} />;
   }

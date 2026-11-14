@@ -319,6 +319,7 @@ model Supplier {
 
   products       Product[]
   purchaseOrders PurchaseOrder[]
+  users          User[]
 }
 
 model PurchaseOrder {
@@ -492,10 +493,12 @@ model User {
   username         String   @unique
   password         String
   fullName         String
-  role             String   @default("REP") // "ADMIN" | "REP"
+  role             String   @default("REP") // "ADMIN" | "REP" | "SUPPLIER"
   phone            String?
   lorryId          String?
   lorry            Lorry?   @relation(fields: [lorryId], references: [id])
+  supplierId       String?
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
   status           String   @default("ACTIVE") // "ACTIVE" | "INACTIVE"
   monthlyTarget    Float    @default(0.0) // Monthly revenue target amount
   dailyTarget      Float    @default(0.0) // Daily revenue target amount

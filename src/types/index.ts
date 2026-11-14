@@ -658,9 +658,18 @@ export interface User {
   id: string;
   username: string;
   fullName: string;
-  role: 'ADMIN' | 'REP';
+  role: 'ADMIN' | 'REP' | 'SUPPLIER';
   phone?: string | null;
   lorryId?: string | null;
+  supplierId?: string | null;
+  supplier?: {
+    id: string;
+    code: string;
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+    outstandingBalance?: number;
+  } | null;
   lorry?: {
     id: string;
     vehicleNumber: string;

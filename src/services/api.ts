@@ -513,3 +513,82 @@ export const HrService = {
     api.get<HrPayrollSummary>('/hr/summary').then(r => r.data)
 };
 
+
+
+// ========================================================
+// ENTERPRISE SUPPLIER PORTAL (TIER 1)
+// ========================================================
+
+export interface SupplierPortalDashboardData {
+  supplier: {
+    id: string;
+    code: string;
+    name: string;
+    contactPerson?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    city?: string | null;
+    paymentTerms?: string | null;
+    outstandingBalance: number;
+  } | null;
+  stats: {
+    totalProducts: number;
+    totalWarehouseStock: number;
+    totalFloatingStock: number;
+    lowStockCount: number;
+    todaySales: number;
+    monthSales: number;
+    allTimeSales: number;
+    outstandingBalance: number;
+  };
+  products: Array<{
+    id: string;
+    sku: string;
+    name: string;
+    category: string;
+    unit: string;
+    unitPrice: number;
+    costPrice: number;
+    currentStock: number;
+    freeStock: number;
+    damageStock: number;
+    minStockAlert: number;
+    freeRatioBuy?: number;
+    freeRatioGet?: number;
+  }>;
+  lorries: Array<{
+    id: string;
+    vehicleNumber: string;
+    driverName: string;
+    driverPhone?: string | null;
+    routeName: string;
+    routeCode: string;
+    currentLatitude?: number | null;
+    currentLongitude?: number | null;
+    speed?: number | null;
+    heading?: number | null;
+    lastLocationUpdate?: string | null;
+    supplierUnitsOnBoard: number;
+  }>;
+  recentDispatches: any[];
+  topSelling: Array<{
+    name: string;
+    sku: string;
+    unitsSold: number;
+    totalRevenue: number;
+  }>;
+}
+
+export const EnterpriseSupplierService = {
+  getDashboard: (supplierId?: string) =>
+    api.get<SupplierPortalDashboardData>('/supplier-portal/dashboard', { params: { supplierId } }).then(r => r.data),
+  dispatchStock: (payload: {
+    supplierId: string;
+    items: Array<{ productId: string; quantity: number; freeQuantity?: number; costPrice: number }>;
+    notes?: string;
+    supplierInvoiceNumber?: string;
+  }) =>
+    api.post<any>('/supplier-portal/dispatch', payload).then(r => r.data),
+  getSuppliers: () =>
+    api.get<Supplier[]>('/supplier-portal/suppliers').then(r => r.data),
+};
