@@ -17,6 +17,7 @@ import {
   Factory,
   CreditCard,
   Briefcase,
+  Award,
   LogOut,
   MapPin,
   X
@@ -81,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'cheques', label: 'Cheque Management', icon: CreditCard, badge: 'PDC', badgeTone: 'inward' },
         { id: 'expenses', label: 'Expenses & Opex', icon: TrendingDown, badge: 'Outflow', badgeTone: 'expense' },
         { id: 'pnl', label: 'Profit & Loss', icon: TrendingUp, badge: 'P&L', badgeTone: 'pnl' },
+        { id: 'distributor-performance', label: 'Distributor Performance', icon: Award, badge: 'KPIs', badgeTone: 'pnl' },
         { id: 'reports', label: 'Reports & Audit', icon: BarChart3 },
         { id: 'settings', label: 'Fleet & Settings', icon: SettingsIcon }
       ]

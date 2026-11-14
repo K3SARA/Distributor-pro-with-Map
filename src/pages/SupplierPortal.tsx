@@ -19,11 +19,13 @@ import {
   CheckCircle2,
   Calendar,
   ChevronRight,
+  Award,
   X
 } from 'lucide-react';
 import { EnterpriseSupplierService, SupplierPortalDashboardData, ProductService } from '../services/api';
 import { User, Supplier } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
+import { DistributorPerformance } from './DistributorPerformance';
 
 interface SupplierPortalProps {
   user: User;
@@ -34,7 +36,7 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
   const { formatMoney } = useCurrency();
   const [data, setData] = useState<SupplierPortalDashboardData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'FLEET' | 'PRODUCTS' | 'DISPATCHES'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'FLEET' | 'PRODUCTS' | 'DISPATCHES' | 'PERFORMANCE'>('OVERVIEW');
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>(user.supplierId || '');
 
@@ -316,6 +318,19 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
           >
             <Layers className="w-4 h-4" />
             <span>Supply Dispatches (GRN)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('PERFORMANCE')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              activeTab === 'PERFORMANCE'
+                ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Award className="w-4 h-4" />
+            <span>Distributor Performance</span>
           </button>
         </div>
 
@@ -725,6 +740,13 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
               )}
             </div>
           </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 5: DISTRIBUTOR PERFORMANCE ANALYTICS */}
+        {/* ======================================================== */}
+        {activeTab === 'PERFORMANCE' && (
+          <DistributorPerformance />
         )}
       </main>
 

@@ -592,3 +592,115 @@ export const EnterpriseSupplierService = {
   getSuppliers: () =>
     api.get<Supplier[]>('/supplier-portal/suppliers').then(r => r.data),
 };
+
+export interface DistributorPerformanceData {
+  timeframe: string;
+  dateRange: { from: string; to: string };
+  summary: {
+    totalRevenue: number;
+    grossRevenue: number;
+    discounts: number;
+    returnsValue: number;
+    returnRate: number;
+    totalOrders: number;
+    averageOrderValue: number;
+    cashSales: number;
+    creditSales: number;
+    chequeSales: number;
+    cashCollectionRate: number;
+    totalOutstandingCredit: number;
+    totalCreditLimit: number;
+    totalCustomers: number;
+    activeCustomers: number;
+    coverageRate: number;
+    monthlyTarget: number;
+    achievementPercentage: number;
+    activeRoutesCount: number;
+    activeLorriesCount: number;
+    activeRepsCount: number;
+    totalVisits: number;
+    verifiedVisits: number;
+    strikeRate: number;
+  };
+  timeSeries: Array<{
+    date: string;
+    label: string;
+    sales: number;
+    ordersCount: number;
+    cash: number;
+    credit: number;
+  }>;
+  routes: Array<{
+    id: string;
+    code: string;
+    name: string;
+    sales: number;
+    ordersCount: number;
+    target: number;
+    achievementPct: number;
+    activeOutlets: number;
+    totalOutlets: number;
+    coveragePct: number;
+    outstandingCredit: number;
+    returnsValue: number;
+    returnRate: number;
+    lorryNumber?: string;
+    repName?: string;
+    status: 'TOP_PERFORMER' | 'ON_TRACK' | 'NEEDS_ATTENTION';
+  }>;
+  reps: Array<{
+    id: string;
+    fullName: string;
+    phone?: string | null;
+    lorryNumber: string;
+    routeName: string;
+    monthlyTarget: number;
+    achievedSales: number;
+    achievementPct: number;
+    ordersCount: number;
+    averageBillValue: number;
+    cashCollected: number;
+    creditIssued: number;
+    strikeRate: number;
+    rank: number;
+  }>;
+  creditAging: {
+    totalOutstanding: number;
+    current: { count: number; amount: number; label: string };
+    days16to30: { count: number; amount: number; label: string };
+    days31to60: { count: number; amount: number; label: string };
+    over60: { count: number; amount: number; label: string };
+    topDebtors: Array<{
+      id: string;
+      code: string;
+      name: string;
+      phone: string;
+      routeName: string;
+      balance: number;
+      creditLimit: number;
+      ratio: number;
+    }>;
+  };
+  products: {
+    topProducts: Array<{
+      id: string;
+      sku: string;
+      name: string;
+      category: string;
+      unitsSold: number;
+      revenue: number;
+      percentage: number;
+    }>;
+    categoryBreakdown: Array<{
+      category: string;
+      revenue: number;
+      units: number;
+      percentage: number;
+    }>;
+  };
+}
+
+export const DistributorPerformanceService = {
+  getPerformance: (params?: { timeframe?: string; from?: string; to?: string; routeId?: string }) =>
+    api.get<DistributorPerformanceData>('/analytics/distributor-performance', { params }).then(r => r.data),
+};

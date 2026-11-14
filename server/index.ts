@@ -7013,6 +7013,389 @@ app.get('/api/reports/profit-and-loss', async (req: Request, res: Response) => {
 });
 
 // ========================================================
+// 8.1 DISTRIBUTOR ENTERPRISE PERFORMANCE ANALYTICS
+// ========================================================
+app.get('/api/analytics/distributor-performance', async (req: Request, res: Response) => {
+  try {
+    const { from, to, timeframe, routeId } = req.query;
+
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+
+    if (from && to) {
+      startDate = new Date(from as string);
+      endDate = new Date(to as string);
+    } else if (timeframe === 'today') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (timeframe === 'week') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      startDate = new Date(d.setHours(0, 0, 0, 0));
+      endDate = new Date(now.setHours(23, 59, 59, 999));
+    } else if (timeframe === 'last_month') {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (timeframe === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    } else {
+      // default: 'month' (Current month)
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+
+    const orderWhere: any = {
+      status: { not: 'CANCELLED' },
+      createdAt: { gte: startDate, lte: endDate }
+    };
+    if (routeId && typeof routeId === 'string' && routeId !== 'ALL') {
+      orderWhere.routeId = routeId;
+    }
+
+    const [
+      orders,
+      routes,
+      lorries,
+      reps,
+      customers,
+      visits
+    ] = await Promise.all([
+      prisma.order.findMany({
+        where: orderWhere,
+        include: {
+          items: {
+            include: { product: true }
+          },
+          returns: {
+            include: { product: true }
+          },
+          customer: true,
+          lorry: true,
+          route: true
+        },
+        orderBy: { createdAt: 'asc' }
+      }),
+      prisma.route.findMany({
+        include: {
+          lorries: true,
+          customers: true
+        }
+      }),
+      prisma.lorry.findMany({
+        include: { route: true }
+      }),
+      prisma.user.findMany({
+        where: { role: 'REP' },
+        include: { lorry: { include: { route: true } } }
+      }),
+      prisma.customer.findMany({
+        include: { route: true }
+      }),
+      prisma.customerVisit.findMany({
+        where: {
+          date: { gte: startDate, lte: endDate }
+        }
+      })
+    ]);
+
+    // 1. Executive Summary Calculations
+    let grossRevenue = 0;
+    let totalRevenue = 0;
+    let discounts = 0;
+    let returnsValue = 0;
+    let cashSales = 0;
+    let creditSales = 0;
+    let chequeSales = 0;
+
+    const activeCustomerSet = new Set<string>();
+    const dailyMap = new Map<string, { date: string; label: string; sales: number; ordersCount: number; cash: number; credit: number }>();
+    const productSalesMap = new Map<string, { id: string; sku: string; name: string; category: string; unitsSold: number; revenue: number }>();
+    const categorySalesMap = new Map<string, { category: string; revenue: number; units: number }>();
+
+    for (const order of orders) {
+      grossRevenue += order.subtotal || 0;
+      totalRevenue += order.netTotal || 0;
+      discounts += order.discountAmount || 0;
+      returnsValue += order.returnAmount || 0;
+
+      if (order.customerId) {
+        activeCustomerSet.add(order.customerId);
+      }
+
+      if (order.paymentMethod === 'CASH') {
+        cashSales += order.netTotal;
+      } else if (order.paymentMethod === 'CHEQUE') {
+        chequeSales += order.netTotal;
+      } else {
+        creditSales += order.netTotal;
+      }
+
+      // Daily trend
+      const dateKey = order.createdAt.toISOString().slice(0, 10);
+      let dayItem = dailyMap.get(dateKey);
+      if (!dayItem) {
+        const dObj = new Date(order.createdAt);
+        dayItem = {
+          date: dateKey,
+          label: dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          sales: 0,
+          ordersCount: 0,
+          cash: 0,
+          credit: 0
+        };
+        dailyMap.set(dateKey, dayItem);
+      }
+      dayItem.sales += order.netTotal;
+      dayItem.ordersCount += 1;
+      if (order.paymentMethod === 'CASH') dayItem.cash += order.netTotal;
+      else dayItem.credit += order.netTotal;
+
+      // Product sales
+      for (const it of order.items) {
+        const p = it.product;
+        if (!p) continue;
+        let pData = productSalesMap.get(p.id);
+        if (!pData) {
+          pData = {
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            category: p.category || 'General',
+            unitsSold: 0,
+            revenue: 0
+          };
+          productSalesMap.set(p.id, pData);
+        }
+        pData.unitsSold += it.quantity;
+        pData.revenue += it.lineTotal || (it.quantity * it.unitPrice);
+
+        // Category
+        const cat = p.category || 'General';
+        let catData = categorySalesMap.get(cat);
+        if (!catData) {
+          catData = { category: cat, revenue: 0, units: 0 };
+          categorySalesMap.set(cat, catData);
+        }
+        catData.revenue += it.lineTotal || (it.quantity * it.unitPrice);
+        catData.units += it.quantity;
+      }
+    }
+
+    const totalOrders = orders.length;
+    const averageOrderValue = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+    const returnRate = grossRevenue > 0 ? +((returnsValue / grossRevenue) * 100).toFixed(2) : 0;
+    const cashCollectionRate = totalRevenue > 0 ? +((cashSales / totalRevenue) * 100).toFixed(1) : 0;
+
+    const totalOutstandingCredit = customers.reduce((sum, c) => sum + (c.outstandingBalance || 0), 0);
+    const totalCreditLimit = customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0);
+    const totalCustomers = customers.length;
+    const activeCustomers = activeCustomerSet.size;
+    const coverageRate = totalCustomers > 0 ? +((activeCustomers / totalCustomers) * 100).toFixed(1) : 0;
+
+    // Monthly Target calculation
+    const baseTarget = reps.reduce((sum, r) => sum + (r.monthlyTarget || 0), 0);
+    const monthlyTarget = baseTarget > 0 ? baseTarget : 1000000;
+    const achievementPercentage = monthlyTarget > 0 ? +((totalRevenue / monthlyTarget) * 100).toFixed(1) : 0;
+
+    const totalVisits = visits.length;
+    const verifiedVisits = visits.filter(v => v.status === 'VERIFIED').length;
+    const strikeRate = totalVisits > 0 ? +((totalOrders / totalVisits) * 100).toFixed(1) : 0;
+
+    // 2. Route Matrix
+    const routesData = routes.map(r => {
+      const routeOrders = orders.filter(o => o.routeId === r.id);
+      const routeSales = routeOrders.reduce((sum, o) => sum + o.netTotal, 0);
+      const routeReturns = routeOrders.reduce((sum, o) => sum + o.returnAmount, 0);
+      const activeOutlets = new Set(routeOrders.map(o => o.customerId)).size;
+      const totalOutlets = r.customers.length;
+      const coveragePct = totalOutlets > 0 ? +((activeOutlets / totalOutlets) * 100).toFixed(1) : 0;
+      const outstandingCredit = r.customers.reduce((sum, c) => sum + (c.outstandingBalance || 0), 0);
+      
+      const routeTarget = (monthlyTarget / (routes.length || 1));
+      const achievementPct = routeTarget > 0 ? +((routeSales / routeTarget) * 100).toFixed(1) : 0;
+      const rReturnRate = routeSales > 0 ? +((routeReturns / routeSales) * 100).toFixed(2) : 0;
+
+      const primaryLorry = r.lorries[0];
+      const assignedRep = reps.find(rep => rep.lorryId === primaryLorry?.id);
+
+      let status: 'TOP_PERFORMER' | 'ON_TRACK' | 'NEEDS_ATTENTION' = 'ON_TRACK';
+      if (achievementPct >= 85) status = 'TOP_PERFORMER';
+      else if (achievementPct < 50) status = 'NEEDS_ATTENTION';
+
+      return {
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        sales: Math.round(routeSales),
+        ordersCount: routeOrders.length,
+        target: Math.round(routeTarget),
+        achievementPct,
+        activeOutlets,
+        totalOutlets,
+        coveragePct,
+        outstandingCredit: Math.round(outstandingCredit),
+        returnsValue: Math.round(routeReturns),
+        returnRate: rReturnRate,
+        lorryNumber: primaryLorry?.vehicleNumber || 'Unassigned',
+        repName: assignedRep?.fullName || primaryLorry?.driverName || 'No Rep Assigned',
+        status
+      };
+    }).sort((a, b) => b.sales - a.sales);
+
+    // 3. Sales Reps Leaderboard
+    const repsData = reps.map((rep) => {
+      const repOrders = orders.filter(o => o.lorryId === rep.lorryId);
+      const achievedSales = repOrders.reduce((sum, o) => sum + o.netTotal, 0);
+      const cashCollected = repOrders.filter(o => o.paymentMethod === 'CASH').reduce((sum, o) => sum + o.netTotal, 0);
+      const creditIssued = repOrders.filter(o => o.paymentMethod === 'CREDIT').reduce((sum, o) => sum + o.netTotal, 0);
+      const target = rep.monthlyTarget > 0 ? rep.monthlyTarget : (monthlyTarget / (reps.length || 1));
+      const achievementPct = target > 0 ? +((achievedSales / target) * 100).toFixed(1) : 0;
+      const averageBillValue = repOrders.length > 0 ? Math.round(achievedSales / repOrders.length) : 0;
+      
+      const repVisits = visits.filter(v => v.lorryId === rep.lorryId);
+      const repStrike = repVisits.length > 0 ? +((repOrders.length / repVisits.length) * 100).toFixed(1) : 0;
+
+      return {
+        id: rep.id,
+        fullName: rep.fullName,
+        phone: rep.phone,
+        lorryNumber: rep.lorry?.vehicleNumber || 'No Lorry',
+        routeName: rep.lorry?.route?.name || 'Unassigned',
+        monthlyTarget: Math.round(target),
+        achievedSales: Math.round(achievedSales),
+        achievementPct,
+        ordersCount: repOrders.length,
+        averageBillValue,
+        cashCollected: Math.round(cashCollected),
+        creditIssued: Math.round(creditIssued),
+        strikeRate: repStrike,
+        rank: 0
+      };
+    }).sort((a, b) => b.achievedSales - a.achievedSales);
+
+    // Assign ranking
+    repsData.forEach((r, idx) => { r.rank = idx + 1; });
+
+    // 4. Credit Aging Breakdown
+    const debtorCustomers = customers.filter(c => (c.outstandingBalance || 0) > 0);
+    let currentBucket = { count: 0, amount: 0, label: '0-15 Days (Current)' };
+    let bucket16to30 = { count: 0, amount: 0, label: '16-30 Days' };
+    let bucket31to60 = { count: 0, amount: 0, label: '31-60 Days' };
+    let bucketOver60 = { count: 0, amount: 0, label: '60+ Days (Overdue Alert)' };
+
+    const nowTime = now.getTime();
+    for (const c of debtorCustomers) {
+      const updatedTime = new Date(c.updatedAt).getTime();
+      const ageDays = Math.floor((nowTime - updatedTime) / (1000 * 60 * 60 * 24));
+      const amt = c.outstandingBalance;
+
+      if (ageDays <= 15) {
+        currentBucket.count++;
+        currentBucket.amount += amt;
+      } else if (ageDays <= 30) {
+        bucket16to30.count++;
+        bucket16to30.amount += amt;
+      } else if (ageDays <= 60) {
+        bucket31to60.count++;
+        bucket31to60.amount += amt;
+      } else {
+        bucketOver60.count++;
+        bucketOver60.amount += amt;
+      }
+    }
+
+    // Top 8 debtors
+    const topDebtors = debtorCustomers
+      .sort((a, b) => b.outstandingBalance - a.outstandingBalance)
+      .slice(0, 8)
+      .map(c => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        phone: c.phone,
+        routeName: c.route?.name || 'Local Route',
+        balance: Math.round(c.outstandingBalance),
+        creditLimit: Math.round(c.creditLimit || 50000),
+        ratio: +((c.outstandingBalance / (c.creditLimit || 50000)) * 100).toFixed(0)
+      }));
+
+    // 5. Products & Brand Movement
+    const topProducts = Array.from(productSalesMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 6)
+      .map(p => ({
+        ...p,
+        revenue: Math.round(p.revenue),
+        percentage: totalRevenue > 0 ? +((p.revenue / totalRevenue) * 100).toFixed(1) : 0
+      }));
+
+    const categoryBreakdown = Array.from(categorySalesMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .map(c => ({
+        ...c,
+        revenue: Math.round(c.revenue),
+        percentage: totalRevenue > 0 ? +((c.revenue / totalRevenue) * 100).toFixed(1) : 0
+      }));
+
+    const timeSeries = Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+    return res.json({
+      timeframe: (timeframe as string) || 'month',
+      dateRange: {
+        from: startDate.toISOString(),
+        to: endDate.toISOString()
+      },
+      summary: {
+        totalRevenue: Math.round(totalRevenue),
+        grossRevenue: Math.round(grossRevenue),
+        discounts: Math.round(discounts),
+        returnsValue: Math.round(returnsValue),
+        returnRate,
+        totalOrders,
+        averageOrderValue,
+        cashSales: Math.round(cashSales),
+        creditSales: Math.round(creditSales),
+        chequeSales: Math.round(chequeSales),
+        cashCollectionRate,
+        totalOutstandingCredit: Math.round(totalOutstandingCredit),
+        totalCreditLimit: Math.round(totalCreditLimit),
+        totalCustomers,
+        activeCustomers,
+        coverageRate,
+        monthlyTarget: Math.round(monthlyTarget),
+        achievementPercentage,
+        activeRoutesCount: routes.length,
+        activeLorriesCount: lorries.filter(l => l.status === 'ACTIVE').length,
+        activeRepsCount: reps.length,
+        totalVisits,
+        verifiedVisits,
+        strikeRate
+      },
+      timeSeries,
+      routes: routesData,
+      reps: repsData,
+      creditAging: {
+        totalOutstanding: Math.round(totalOutstandingCredit),
+        current: { count: currentBucket.count, amount: Math.round(currentBucket.amount), label: currentBucket.label },
+        days16to30: { count: bucket16to30.count, amount: Math.round(bucket16to30.amount), label: bucket16to30.label },
+        days31to60: { count: bucket31to60.count, amount: Math.round(bucket31to60.amount), label: bucket31to60.label },
+        over60: { count: bucketOver60.count, amount: Math.round(bucketOver60.amount), label: bucketOver60.label },
+        topDebtors
+      },
+      products: {
+        topProducts,
+        categoryBreakdown
+      }
+    });
+  } catch (error: any) {
+    console.error('[API Analytics] Distributor performance error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to load distributor performance analytics' });
+  }
+});
+
+// ========================================================
 // 9. EXPENSES & OPERATIONAL EXPENDITURES (OPEX)
 // ========================================================
 
