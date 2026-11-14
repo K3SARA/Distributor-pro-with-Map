@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Layers, Package, Sparkles } from 'lucide-react';
-import { Product } from '../types';
-import { ProductService } from '../services/api';
+import { X, Check, Layers, Package, Sparkles, Building2 } from 'lucide-react';
+import { Product, Supplier } from '../types';
+import { ProductService, SupplierService } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 
 interface ProductModalProps {
@@ -20,6 +20,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   defaultIsRawMaterial = false
 }) => {
   const { currencyConfig } = useCurrency();
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [formData, setFormData] = useState({
     sku: '',
     barcode: '',
@@ -33,10 +34,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
     minStockAlert: '10',
     freeRatioBuy: '0',
     freeRatioGet: '0',
-    isRawMaterial: false
+    isRawMaterial: false,
+    supplierId: ''
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    SupplierService.getAll()
+      .then(setSuppliers)
+      .catch(err => console.warn('Failed to load suppliers in ProductModal:', err));
+  }, []);
 
   useEffect(() => {
     if (product) {
@@ -53,7 +61,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         minStockAlert: product.minStockAlert.toString(),
         freeRatioBuy: (product.freeRatioBuy || 0).toString(),
         freeRatioGet: (product.freeRatioGet || 0).toString(),
-        isRawMaterial: Boolean(product.isRawMaterial)
+        isRawMaterial: Boolean(product.isRawMaterial),
+        supplierId: product.supplierId || ''
       });
     } else {
       setFormData({
@@ -69,7 +78,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         minStockAlert: '10',
         freeRatioBuy: '0',
         freeRatioGet: '0',
-        isRawMaterial: defaultIsRawMaterial
+        isRawMaterial: defaultIsRawMaterial,
+        supplierId: ''
       });
     }
     setError(null);
@@ -107,7 +117,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         minStockAlert: parseInt(formData.minStockAlert || '10', 10),
         freeRatioBuy: formData.isRawMaterial ? 0 : (parseInt(formData.freeRatioBuy, 10) || 0),
         freeRatioGet: formData.isRawMaterial ? 0 : (parseInt(formData.freeRatioGet, 10) || 0),
-        isRawMaterial: formData.isRawMaterial
+        isRawMaterial: formData.isRawMaterial,
+        supplierId: formData.supplierId || null
       };
 
       if (product) {
@@ -256,6 +267,28 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               placeholder={formData.isRawMaterial ? 'e.g. Refined Cane Sugar' : 'e.g. Premium Cold Brew Coffee'}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
             />
+          </div>
+
+          {/* Supplier / Principal FMCG Brand Assignment */}
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+              Supplier / Principal Brand
+            </label>
+            <select
+              value={formData.supplierId}
+              onChange={e => setFormData({ ...formData, supplierId: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0071E3]"
+            >
+              <option value="">-- No Supplier (Local / In-House Manufactured) --</option>
+              {suppliers.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Links this SKU to the Supplier so they can monitor sales and lorry distribution in their Supplier Portal.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

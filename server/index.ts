@@ -2127,7 +2127,7 @@ app.get('/api/products/scan/:code', async (req: Request, res: Response) => {
 // Create product
 app.post('/api/products', async (req: Request, res: Response) => {
   try {
-    const { sku, barcode, name, category, unit, unitPrice, costPrice, currentStock, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, barcode, name, category, unit, unitPrice, costPrice, currentStock, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial, supplierId } = req.body;
 
     if (!sku || !name) {
       return res.status(400).json({ error: 'SKU and Name are required.' });
@@ -2156,7 +2156,11 @@ app.post('/api/products', async (req: Request, res: Response) => {
         minStockAlert: parseInt(minStockAlert || 10, 10),
         freeRatioBuy: isRaw ? 0 : (freeRatioBuy ? parseInt(freeRatioBuy, 10) : 0),
         freeRatioGet: isRaw ? 0 : (freeRatioGet ? parseInt(freeRatioGet, 10) : 0),
-        isRawMaterial: isRaw
+        isRawMaterial: isRaw,
+        supplierId: supplierId || null
+      },
+      include: {
+        supplier: true
       }
     });
 
@@ -2194,7 +2198,7 @@ app.post('/api/products', async (req: Request, res: Response) => {
 app.put('/api/products/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { sku, barcode, name, category, unit, unitPrice, costPrice, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial } = req.body;
+    const { sku, barcode, name, category, unit, unitPrice, costPrice, freeStock, minStockAlert, freeRatioBuy, freeRatioGet, isRawMaterial, supplierId } = req.body;
     const isRaw = isRawMaterial !== undefined ? Boolean(isRawMaterial) : undefined;
 
     const updated = await (prisma.product as any).update({
@@ -2211,7 +2215,11 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
         minStockAlert: minStockAlert !== undefined ? parseInt(minStockAlert, 10) : undefined,
         freeRatioBuy: isRaw ? 0 : (freeRatioBuy !== undefined ? parseInt(freeRatioBuy, 10) : undefined),
         freeRatioGet: isRaw ? 0 : (freeRatioGet !== undefined ? parseInt(freeRatioGet, 10) : undefined),
-        isRawMaterial: isRaw
+        isRawMaterial: isRaw,
+        supplierId: supplierId !== undefined ? (supplierId || null) : undefined
+      },
+      include: {
+        supplier: true
       }
     });
 

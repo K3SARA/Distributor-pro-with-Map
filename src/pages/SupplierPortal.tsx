@@ -21,7 +21,7 @@ import {
   ChevronRight,
   X
 } from 'lucide-react';
-import { EnterpriseSupplierService, SupplierPortalDashboardData } from '../services/api';
+import { EnterpriseSupplierService, SupplierPortalDashboardData, ProductService } from '../services/api';
 import { User, Supplier } from '../types';
 import { useCurrency } from '../context/CurrencyContext';
 
@@ -45,6 +45,55 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
   const [dispatchNotes, setDispatchNotes] = useState<string>('');
   const [submittingDispatch, setSubmittingDispatch] = useState<boolean>(false);
   const [dispatchSuccessToast, setDispatchSuccessToast] = useState<string | null>(null);
+
+  // Add Product to Supplier Catalog Modal State
+  const [showAddProductModal, setShowAddProductModal] = useState<boolean>(false);
+  const [newProdSku, setNewProdSku] = useState<string>('');
+  const [newProdBarcode, setNewProdBarcode] = useState<string>('');
+  const [newProdName, setNewProdName] = useState<string>('');
+  const [newProdCategory, setNewProdCategory] = useState<string>('General');
+  const [newProdUnit, setNewProdUnit] = useState<string>('Case');
+  const [newProdWholesale, setNewProdWholesale] = useState<string>('');
+  const [newProdRetail, setNewProdRetail] = useState<string>('');
+  const [newProdMinStock, setNewProdMinStock] = useState<string>('10');
+  const [submittingProduct, setSubmittingProduct] = useState<boolean>(false);
+
+  const handleCreateProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!data?.supplier?.id) return;
+    if (!newProdName.trim() || !newProdSku.trim() || !newProdRetail) {
+      alert('SKU, Name and Retail Selling Price are required.');
+      return;
+    }
+    try {
+      setSubmittingProduct(true);
+      await ProductService.create({
+        sku: newProdSku.trim().toUpperCase(),
+        barcode: newProdBarcode.trim() || undefined,
+        name: newProdName.trim(),
+        category: newProdCategory.trim() || 'General',
+        unit: newProdUnit.trim() || 'Unit',
+        unitPrice: parseFloat(newProdRetail),
+        costPrice: parseFloat(newProdWholesale || '0'),
+        minStockAlert: parseInt(newProdMinStock || '10', 10),
+        supplierId: data.supplier.id
+      });
+      setShowAddProductModal(false);
+      const createdName = newProdName;
+      setNewProdSku('');
+      setNewProdBarcode('');
+      setNewProdName('');
+      setNewProdWholesale('');
+      setNewProdRetail('');
+      setDispatchSuccessToast(`✅ Product "${createdName}" successfully added to ${data.supplier.name}!`);
+      setTimeout(() => setDispatchSuccessToast(null), 5000);
+      loadData(data.supplier.id);
+    } catch (err: any) {
+      alert(`Failed to add product: ${err.message || 'Unknown error'}`);
+    } finally {
+      setSubmittingProduct(false);
+    }
+  };
 
   const loadData = async (supId?: string) => {
     try {
@@ -538,14 +587,24 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
                 <h2 className="text-sm font-bold text-slate-900">Supplier Master Catalog & Stock Levels</h2>
                 <p className="text-xs text-slate-500">Products supplied to Samantha Distributor Agency</p>
               </div>
-              <button
-                type="button"
-                onClick={handleOpenDispatchModal}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-blue-500 transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Dispatch Stock</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddProductModal(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-slate-800 transition cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Product to Brand</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenDispatchModal}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-blue-500 transition cursor-pointer shadow-2xs"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Dispatch Stock</span>
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
@@ -828,6 +887,155 @@ export const SupplierPortal: React.FC<SupplierPortalProps> = ({ user, onLogout }
           </div>
         </div>
       )}
+
+      {/* 5. ADD NEW PRODUCT TO BRAND MODAL */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Add Product to Brand</h3>
+                  <p className="text-[11px] text-slate-500">{data?.supplier?.name || 'Supplier Master Catalog'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddProductModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold hover:bg-slate-300 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProductSubmit} className="p-5 space-y-3.5 overflow-y-auto text-xs">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">SKU / Code *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newProdSku}
+                    onChange={e => setNewProdSku(e.target.value.toUpperCase())}
+                    placeholder="e.g. BEV-010"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Barcode (EAN-13)</label>
+                  <input
+                    type="text"
+                    value={newProdBarcode}
+                    onChange={e => setNewProdBarcode(e.target.value)}
+                    placeholder="e.g. 4792019901"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={newProdName}
+                  onChange={e => setNewProdName(e.target.value)}
+                  placeholder="e.g. Ceylon Earl Grey Tea 500g"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-semibold focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newProdCategory}
+                    onChange={e => setNewProdCategory(e.target.value)}
+                    placeholder="e.g. Tea / Beverages"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Unit Type</label>
+                  <select
+                    value={newProdUnit}
+                    onChange={e => setNewProdUnit(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none"
+                  >
+                    <option value="Case">Case</option>
+                    <option value="Box">Box</option>
+                    <option value="Pack">Pack</option>
+                    <option value="Bottle">Bottle</option>
+                    <option value="Unit">Unit / Piece</option>
+                    <option value="Kg">Kg</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Wholesale Supply Cost (Rs.)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newProdWholesale}
+                    onChange={e => setNewProdWholesale(e.target.value)}
+                    placeholder="Price charged to agency"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">Retail Selling Price (Rs.) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    required
+                    value={newProdRetail}
+                    onChange={e => setNewProdRetail(e.target.value)}
+                    placeholder="Price charged to shops"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono font-bold text-blue-700 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 block mb-1">Low Stock Warning Alert Threshold</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={newProdMinStock}
+                  onChange={e => setNewProdMinStock(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-mono focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={submittingProduct}
+                  className="w-full py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-md transition disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {submittingProduct ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Saving Product to Brand...</span>
+                    </>
+                  ) : (
+                    <span>Add SKU to Brand Catalog</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
